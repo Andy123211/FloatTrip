@@ -13,6 +13,7 @@ from app.core.http import close_async_http_client
 from app.planning.graph import build_graph, build_runtime_revision_graph
 from app.planning.runtime_worker import (
     PlanningFinalizer,
+    SpotTipsWorker,
     planning_run_to_state,
     revision_snapshot_to_state,
     snapshot_to_state,
@@ -41,43 +42,66 @@ checkpointer: AsyncSqliteSaver | None = None
 chat_worker: GraphRuntimeWorker | None = None
 planning_worker: GraphRuntimeWorker | None = None
 revision_worker: GraphRuntimeWorker | None = None
+spot_tips_worker: SpotTipsWorker | None = None
 memory_worker = MemoryExtractionWorker(manager.db_path)
 _checkpoint_context = None
 
 
 async def start_runtime() -> None:
-    global checkpointer, chat_worker, planning_worker, revision_worker, _checkpoint_context
+    global checkpointer, chat_worker, planning_worker, revision_worker, spot_tips_worker, _checkpoint_context
     _checkpoint_context = AsyncSqliteSaver.from_conn_string(str(_checkpoint_path))
     checkpointer = await _checkpoint_context.__aenter__()
     await checkpointer.setup()
-    chat_worker = GraphRuntimeWorker(
-        manager,
-        build_chat_graph(checkpointer=checkpointer),
-        chat_service.chat_input,
-        stream_messages=False,
-        finalizer=chat_service.finalize_chat,
-    )
+    chat_agent_mode = os.getenv("CHAT_AGENT_MODE", "react").strip().lower()
+    if chat_agent_mode not in {"decision", "react"}:
+        raise ValueError("CHAT_AGENT_MODE must be decision or react")
+    if chat_agent_mode == "react":
+        from app.chat.react_graph import build_main_agent_graph
+        from app.chat.tool_service import MainAgentToolService
+        from app.chat.tools import build_main_agent_tools
+
+        tools = build_main_agent_tools(MainAgentToolService(chat_service))
+        chat_worker = GraphRuntimeWorker(
+            manager,
+            build_main_agent_graph(tools, checkpointer=checkpointer),
+            chat_service.react_chat_input,
+            stream_messages=True,
+            stream_tools=True,
+            visible_nodes={"model"},
+            context_builder=chat_service.main_agent_context,
+            finalizer=chat_service.finalize_react_chat,
+        )
+    else:
+        chat_worker = GraphRuntimeWorker(
+            manager,
+            build_chat_graph(checkpointer=checkpointer),
+            chat_service.chat_input,
+            stream_messages=False,
+            finalizer=chat_service.finalize_chat,
+        )
     planning_worker = GraphRuntimeWorker(
         manager,
         build_graph(
             memory_writer=None,
             checkpointer=checkpointer,
-            interrupt_on_missing=True,
+            interrupt_on_missing=False,
         ),
         planning_run_to_state,
         stream_messages=False,
-        finalizer=PlanningFinalizer(manager),
+        finalizer=PlanningFinalizer(manager, scheduler.notify),
     )
     revision_worker = GraphRuntimeWorker(
         manager,
         build_runtime_revision_graph(checkpointer=checkpointer),
         revision_snapshot_to_state,
         stream_messages=False,
-        finalizer=PlanningFinalizer(manager),
+        finalizer=PlanningFinalizer(manager, scheduler.notify),
     )
     scheduler.register(RunKind.CHAT, chat_worker)
     scheduler.register(RunKind.TRAVEL_PLAN, planning_worker)
     scheduler.register(RunKind.REVISION, revision_worker)
+    spot_tips_worker = SpotTipsWorker(manager)
+    scheduler.register(RunKind.SPOT_TIPS, spot_tips_worker)
     await scheduler.start()
     await memory_worker.start()
 

@@ -416,6 +416,25 @@ class ConversationMemoryTests(unittest.IsolatedAsyncioTestCase):
 
 
 class LegacyMemoryMigrationTests(unittest.TestCase):
+    def test_init_drops_pending_modifications_but_keeps_legacy_profiles(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "legacy-tables.db"
+            init_db(db_path)
+            with get_conn(db_path) as conn:
+                conn.execute(
+                    "CREATE TABLE pending_modifications(id TEXT PRIMARY KEY, payload TEXT)"
+                )
+            init_db(db_path)
+            with get_conn(db_path) as conn:
+                tables = {
+                    row["name"]
+                    for row in conn.execute(
+                        "SELECT name FROM sqlite_master WHERE type='table'"
+                    ).fetchall()
+                }
+            self.assertNotIn("pending_modifications", tables)
+            self.assertIn("user_profiles", tables)
+
     def test_legacy_preferences_are_active_but_visited_destinations_are_candidates(self):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "legacy.db"

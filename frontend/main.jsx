@@ -6,20 +6,18 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
 }/*EDITMODE-END*/;
 
 const THEME_OPTIONS = [
-  { value: "morning", label: "晨刊 · 暖纸" },
-  { value: "celadon", label: "青瓷 · 临水" },
-  { value: "night",   label: "夜航 · 墨蓝" },
-  { value: "sky",     label: "晴空 · 淡蓝" },
+  { value: "morning", label: "晨光 · 蜂蜜黄" },
+  { value: "celadon", label: "青野 · 嫩芽绿" },
+  { value: "night",   label: "夜旅 · 可可棕" },
+  { value: "sky",     label: "晴日 · 奶油白" },
 ];
-const THEME_ICONS = { morning: "☀", celadon: "🍃", night: "🌙", sky: "☁" };
+const THEME_ICONS = { morning: "sun", celadon: "leaf", night: "moon", sky: "sparkle" };
 
 function App() {
   const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
-  const initialPathPage = window.location.pathname === "/profile"
-    ? "profile"
-    : window.location.pathname === "/history" ? "history" : "chat";
+  const legacyHistoryPath = window.location.pathname === "/history";
+  const initialPathPage = window.location.pathname === "/profile" ? "profile" : "home";
   const [page, setPage] = React.useState(initialPathPage);
-  const [planKey, setPlanKey] = React.useState(0);
   const [authUser, setAuthUser] = React.useState(() => getAuth()?.username || null);
   const [showAuthModal, setShowAuthModal] = React.useState(false);
   const [authReason, setAuthReason] = React.useState("");
@@ -28,10 +26,15 @@ function App() {
   // 行程详情页数据
   const [detailPlan, setDetailPlan] = React.useState(null);
   const [detailPlanId, setDetailPlanId] = React.useState(null);
-  // 触发 PlanPage 执行修改流
-  const [modifyTrigger, setModifyTrigger] = React.useState(null);
-  const modifyNonceRef = React.useRef(0);
-  const [planPhase, setPlanPhase] = React.useState("idle");
+  const [revisionTrigger, setRevisionTrigger] = React.useState(null);
+  const [homePrompt, setHomePrompt] = React.useState("");
+  const [workspaceTransition, setWorkspaceTransition] = React.useState("idle");
+  const revisionNonceRef = React.useRef(0);
+  const workspaceTransitionTimersRef = React.useRef([]);
+
+  React.useEffect(() => () => {
+    workspaceTransitionTimersRef.current.forEach(window.clearTimeout);
+  }, []);
 
   React.useEffect(() => {
     requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -39,10 +42,11 @@ function App() {
     }));
     // 处理 URL 参数
     const params = new URLSearchParams(window.location.search);
-    if (["profile", "history"].includes(initialPathPage) && !getAuth()) {
-      setAuthReason(initialPathPage === "profile" ? "请先登录管理旅行画像" : "请先登录查看历史行程");
+    if (initialPathPage === "profile" && !getAuth()) {
+      setAuthReason("请先登录管理旅行画像");
       setShowAuthModal(true);
     }
+    if (legacyHistoryPath) history.replaceState({}, "", "/");
     if (params.get("login") === "1" && !getAuth()) {
       setPendingAuthAction(NavigationState.chatTarget(false));
       setShowAuthModal(true);
@@ -101,36 +105,45 @@ function App() {
 
   const go = (p) => {
     setPage(p);
-    if (p === "plan") {
-      setModifyTrigger(null);
-      // 规划进行中时导航回来只是显示页面，不重置（保活）
-      if (planPhase !== "loading") setPlanKey(k => k + 1);
+    window.scrollTo({ top: 0 });
+  };
+
+  const beginRevision = (query, planId) => {
+    setRevisionTrigger({
+      itineraryId: planId,
+      content: query.trim(),
+      nonce: ++revisionNonceRef.current,
+    });
+    setPage("chat");
+    window.scrollTo({ top: 0 });
+  };
+
+  const beginFromHome = (prompt) => {
+    if (!authUser) {
+      requestLogin("登录后开始规划你的旅行", NavigationState.chatTarget());
+      return;
     }
-    window.scrollTo({ top: 0 });
+    if (workspaceTransition !== "idle") return;
+    setHomePrompt(prompt || "");
+    setWorkspaceTransition("home-out");
+    const leaveTimer = window.setTimeout(() => {
+      setPage("chat");
+      window.scrollTo({ top: 0 });
+      setWorkspaceTransition("chat-in");
+      const settleTimer = window.setTimeout(() => setWorkspaceTransition("idle"), 520);
+      workspaceTransitionTimersRef.current.push(settleTimer);
+    }, 210);
+    workspaceTransitionTimersRef.current.push(leaveTimer);
   };
 
-  // 规划/修改完成后由 PlanPage 回调，跳到行程详情页
-  const onPlanReady = (plan, planId) => {
-    setDetailPlan(plan);
-    setDetailPlanId(planId);
-    setModifyTrigger(null);
-    setPage("detail");
-    window.scrollTo({ top: 0 });
-  };
-
-  // 从行程详情页发起修改：跳到规划页执行修改流
   const onRequestModify = (query, planId) => {
-    const nonce = ++modifyNonceRef.current;
-    setModifyTrigger({ query, planId, nonce });
-    if (planPhase !== "loading") setPlanKey(k => k + 1);
-    setPage("plan");
-    window.scrollTo({ top: 0 });
-  };
-
-  // 修改被放弃（concern modal 选"保留原行程"）
-  const onCancelModify = () => {
-    setModifyTrigger(null);
-    if (detailPlan) { setPage("detail"); window.scrollTo({ top: 0 }); }
+    const target = NavigationState.revisionTarget(planId, query);
+    if (!target) return;
+    if (!authUser) {
+      requestLogin("登录后继续修改这份行程", target);
+      return;
+    }
+    beginRevision(target.content, target.itineraryId);
   };
 
   const requestLogin = (reason = "请先登录再继续", continuation = null) => {
@@ -150,6 +163,10 @@ function App() {
       getHistoryItem(continuation.planId).then(data => {
         if (data?.plan) onOpenHistoryPlan(data.plan, continuation.planId);
       }).catch(() => {});
+      return;
+    }
+    if (continuation.mode === "revision") {
+      beginRevision(continuation.content, continuation.itineraryId);
       return;
     }
     if (continuation.page === "chat") {
@@ -188,30 +205,30 @@ function App() {
   const initial = authUser ? authUser.slice(-1) : "";
 
   return (
-    <div>
-      <header className="topbar">
-        <div className="brand" onClick={() => openChat()}>
-          <div className="brand-glyph">途</div>
+    <div className={`app-shell page-${page} workspace-transition-${workspaceTransition}`}>
+      {page !== "detail" && <header className="topbar">
+        <div className="brand" onClick={() => go("home")}>
+          <div className="brand-glyph"><img src="/favicon.png?v=20260830-duck-guide" alt="" /></div>
           <div>
             <div className="brand-name">途见 · AI 旅行规划</div>
             <div className="brand-sub">Travel Journal by Agents</div>
           </div>
         </div>
         <nav className="topnav">
+          <button className={`topnav-link ${page === "home" ? "active" : ""}`}
+            onClick={() => go("home")}>
+            首页
+          </button>
           <button className={`topnav-link ${page === "chat" ? "active" : ""}`}
             onClick={openChat}>
-            旅行对话
-          </button>
-          <button className={`topnav-link ${page === "history" ? "active" : ""}`}
-            onClick={() => { if (!authUser) { requestLogin("请先登录查看历史行程"); return; } go("history"); }}>
-            历史行程
+            旅行工作区
           </button>
           <button className={`topnav-link ${page === "profile" ? "active" : ""}`}
             onClick={() => { if (!authUser) { requestLogin("请先登录管理旅行画像"); return; } go("profile"); }}>
             我的画像
           </button>
           <button className={`topnav-link sweep-nav-link ${page === "sweep" ? "active" : ""}`} onClick={() => go("sweep")}>
-            🧪 测试
+            <UiIcon name="flask" size={15} />测试
           </button>
         </nav>
 
@@ -221,10 +238,11 @@ function App() {
               key={value}
               className={`theme-seg${t.theme === value ? " active" : ""}`}
               title={label}
+              aria-label={label}
               aria-pressed={t.theme === value}
               onClick={() => setTweak("theme", value)}
             >
-              {THEME_ICONS[value]}
+              <UiIcon name={THEME_ICONS[value]} size={15} />
             </button>
           ))}
         </div>
@@ -242,7 +260,7 @@ function App() {
         ) : (
           <button className="user-login-btn" onClick={() => requestLogin("")}>登录 / 注册</button>
         )}
-      </header>
+      </header>}
 
       {showAuthModal && (
         <AuthModal
@@ -252,41 +270,47 @@ function App() {
         />
       )}
 
-      {/* PlanPage 始终挂载，切换页面时隐藏而非卸载，保持规划流继续运行 */}
-      <div style={{ display: page === "plan" ? "" : "none" }}>
-        <PlanPage
-          key={planKey}
-          onRequestLogin={() => requestLogin()}
-          currentUsername={authUser}
-          onPhaseChange={setPlanPhase}
-          onPlanReady={onPlanReady}
-          modifyTrigger={modifyTrigger}
-          onCancelModify={onCancelModify}
-          onManageProfile={() => { if (!authUser) { requestLogin("请先登录管理旅行画像"); return; } go("profile"); }}
-        />
-      </div>
       {page === "detail" && detailPlan && (
         <TripDetailPage
           plan={detailPlan}
           planId={detailPlanId}
           onRequestModify={onRequestModify}
-          onRequestLogin={() => requestLogin()}
           currentUsername={authUser}
+          onBack={() => go("chat")}
+          onPlanChange={(rawPlan, nextPlanId) => {
+            setDetailPlan(adaptPlan(rawPlan, authUser));
+            setDetailPlanId(nextPlanId);
+          }}
+        />
+      )}
+      {page === "home" && (
+        <DashboardPage
+          currentUsername={authUser}
+          onStart={beginFromHome}
+          onFocusComposer={() => beginFromHome("")}
+          onDraftChange={setHomePrompt}
+          onOpenWorkspace={openChat}
+          onOpenPlan={(planId) => getHistoryItem(planId).then(data => {
+            if (data?.plan) onOpenHistoryPlan(data.plan, planId);
+          })}
         />
       )}
       {page === "chat" && (
         <ChatPage
           currentUsername={authUser}
           onRequestLogin={() => requestLogin("登录后继续你的旅行对话", NavigationState.chatTarget())}
+          revisionTrigger={revisionTrigger}
+          initialDraft={homePrompt}
+          onInitialDraftConsumed={() => setHomePrompt("")}
+          onRevisionConsumed={(nonce) => {
+            setRevisionTrigger(current => current?.nonce === nonce ? null : current);
+          }}
           onOpenPlan={(planId) => {
             getHistoryItem(planId).then(data => {
               if (data?.plan) onOpenHistoryPlan(data.plan, planId);
             });
           }}
         />
-      )}
-      {page === "history" && (
-        <HistoryPage onOpenPlan={onOpenHistoryPlan} currentUsername={authUser} />
       )}
       {page === "profile" && (
         <ProfilePage currentUsername={authUser} />
@@ -295,7 +319,7 @@ function App() {
         <SweepPreviewPage />
       )}
 
-      <TweaksPanel>
+      {page !== "detail" && <TweaksPanel>
         <TweakSection label="整体方案" />
         <TweakSelect
           label="主题"
@@ -305,7 +329,7 @@ function App() {
         />
         <TweakSection label="虚拟形象" />
         <TweakToggle label="显示向导「途途」" value={t.mascot} onChange={(v) => setTweak("mascot", v)} />
-      </TweaksPanel>
+      </TweaksPanel>}
     </div>
   );
 }

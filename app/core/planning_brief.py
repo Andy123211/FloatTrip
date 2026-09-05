@@ -32,20 +32,35 @@ def required_brief_fields(data: dict[str, Any]) -> list[str]:
         missing.append("end_date")
     if start is not None and end is not None and end < start:
         missing.append("date_range")
+    if data.get("trip_focus") not in {"sights_first", "food_first", "balanced"}:
+        missing.append("trip_focus")
     return missing
 
 
-def merged_brief_data(
-    brief: dict[str, Any] | None,
-    patch: dict[str, Any] | None,
-) -> dict[str, Any]:
-    """Merge the persisted brief data with fields extracted in this Chat turn."""
-    data = dict((brief or {}).get("data") or {})
-    data.update(
-        {
-            key: value
-            for key, value in (patch or {}).items()
-            if value is not None
+_FIELD_LABELS = {
+    "destination": "目的地",
+    "start_date": "开始日期",
+    "end_date": "结束日期或游玩天数",
+    "date_range": "有效日期范围",
+    "trip_focus": "旅行侧重点",
+}
+
+
+def required_input_interrupt(missing_fields: list[str]) -> dict[str, Any]:
+    """Build the stable public interrupt contract for the main agent."""
+    missing = list(dict.fromkeys(missing_fields))
+    if missing == ["trip_focus"]:
+        return {
+            "question": "这趟更想景点为主、吃吃喝喝为主，还是两者均衡？",
+            "missing_fields": missing,
+            "input_schema": {
+                "type": "string",
+                "enum": ["景点为主", "吃吃喝喝为主", "均衡安排"],
+            },
         }
-    )
-    return data
+    labels = "、".join(_FIELD_LABELS.get(item, item) for item in missing)
+    return {
+        "question": f"为了继续规划，还需要补充：{labels}。",
+        "missing_fields": missing,
+        "input_schema": {"type": "string", "minLength": 1},
+    }

@@ -135,8 +135,9 @@ def search_attraction_pois(
     keywords: str = "景点",
     offset: int = 25,
     page: int = 1,
+    types: str = ATTRACTION_TYPE,
 ) -> list[dict[str, Any]]:
-    """用高德关键字搜索 API 返回景点 POI 列表，类型固定为风景名胜。"""
+    """Search attraction-like POIs; food-street queries may omit type filtering."""
     # 缓存逻辑：仅缓存 page=1 的请求
     cache_key = poi_cache_key(city, keywords) if page == 1 else None
     if cache_key is not None:
@@ -147,7 +148,6 @@ def search_attraction_pois(
     params: dict[str, str] = {
         "key": api_key,
         "keywords": keywords,
-        "types": ATTRACTION_TYPE,
         "city": city,
         "citylimit": "true",
         "offset": str(offset),
@@ -155,6 +155,8 @@ def search_attraction_pois(
         "extensions": "all",
         "output": "json",
     }
+    if types:
+        params["types"] = types
     url = f"{AMAP_TEXT_SEARCH_URL}?{urllib.parse.urlencode(params)}"
     pois = _text_search_raw(url)
     if page == 1 and pois:
@@ -169,6 +171,7 @@ async def search_attraction_pois_async(
     keywords: str = "景点",
     offset: int = 25,
     page: int = 1,
+    types: str = ATTRACTION_TYPE,
 ) -> list[dict[str, Any]]:
     cache_key = poi_cache_key(city, keywords) if page == 1 else None
     if cache_key is not None:
@@ -178,7 +181,6 @@ async def search_attraction_pois_async(
     params: dict[str, str] = {
         "key": api_key,
         "keywords": keywords,
-        "types": ATTRACTION_TYPE,
         "city": city,
         "citylimit": "true",
         "offset": str(offset),
@@ -186,6 +188,8 @@ async def search_attraction_pois_async(
         "extensions": "all",
         "output": "json",
     }
+    if types:
+        params["types"] = types
     url = f"{AMAP_TEXT_SEARCH_URL}?{urllib.parse.urlencode(params)}"
     pois = await _text_search_raw_async(url)
     if page == 1 and pois:
@@ -269,7 +273,12 @@ def poi_to_spot(poi: dict[str, Any]) -> dict[str, Any] | None:
     cost_raw = str(biz_ext.get("cost", "")).strip() if isinstance(biz_ext, dict) else ""
 
     return {
+        "id": str(poi.get("id") or "") or None,
         "name": poi.get("name", ""),
+        # Keep the authoritative Amap classification.  Candidate semantics and
+        # later offline evaluations must never depend on a lossy POI projection.
+        "type": str(poi.get("type") or ""),
+        "typecode": str(poi.get("typecode") or ""),
         "rating": rating,
         "open_time": open_time,
         "location": location,

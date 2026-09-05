@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+import asyncio
 from pathlib import Path
 from typing import TypedDict
 
@@ -11,6 +12,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 
 from app.core.database import get_conn, init_db
+from app.chat.graph import build_chat_graph
 from app.runtime.manager import RunManager
 from app.runtime.models import RunKind
 from app.runtime.worker import GraphRuntimeWorker
@@ -25,6 +27,14 @@ class FakeGraph:
         self.calls.append((value, kwargs))
         for part in self.parts:
             yield part
+
+
+class FakeStructuredLlm:
+    def __init__(self, results):
+        self.results = list(results)
+
+    async def ainvoke(self, _messages):
+        return self.results.pop(0)
 
 
 class RuntimeStreamingTests(unittest.IsolatedAsyncioTestCase):
@@ -120,6 +130,11 @@ class RuntimeStreamingTests(unittest.IsolatedAsyncioTestCase):
             graph.calls[0][1]["stream_mode"],
             ["messages", "custom", "updates", "values"],
         )
+        self.assertEqual(graph.calls[0][1]["config"]["configurable"]["thread_id"], "c")
+        self.assertEqual(
+            graph.calls[0][1]["config"]["configurable"]["checkpoint_ns"],
+            f"run:{self.run['id']}",
+        )
 
     async def test_checkpointed_interrupt_resumes_the_same_run(self):
         class State(TypedDict, total=False):
@@ -166,6 +181,73 @@ class RuntimeStreamingTests(unittest.IsolatedAsyncioTestCase):
                 "2026-10-01 至 2026-10-05",
             )
         self.assertEqual(finalized["answer"], "2026-10-01 至 2026-10-05")
+
+    async def test_main_agent_repeats_interrupt_until_all_required_fields_are_collected(self):
+        llm = FakeStructuredLlm([
+            {
+                "intent": "create_plan", "reply": "开始规划。",
+                "brief_patch": {"destination": "南京"},
+            },
+            {
+                "intent": "update_brief", "reply": "已补充日期。",
+                "brief_patch": {
+                    "start_date": "2026-08-17", "end_date": "2026-08-19", "days": 3,
+                },
+            },
+            {
+                "intent": "update_brief", "reply": "景点优先。",
+                "brief_patch": {"trip_focus": "sights_first"},
+            },
+        ])
+        checkpoint_path = str(Path(self.tmp.name) / "main-agent-checkpoints.db")
+        finalized = {}
+
+        async def finalizer(_run, updates, _text):
+            finalized.update(updates)
+            return {}
+
+        context = {
+            "today": "2026-08-16", "timezone": "Asia/Shanghai",
+            "current_message": "帮我规划南京旅行", "history": [],
+            "application_state": {"planning_brief": None},
+        }
+        async with AsyncSqliteSaver.from_conn_string(checkpoint_path) as saver:
+            graph = build_chat_graph(checkpointer=saver, llm=llm)
+            worker = GraphRuntimeWorker(
+                self.manager, graph, lambda _run: {"dialogue_context": context},
+                stream_messages=False, finalizer=finalizer,
+            )
+            self.manager.runs.transition(self.run["id"], "running")
+            await worker(self.manager.runs.get_internal(self.run["id"]), asyncio.Event())
+            first_wait = self.manager.runs.get_internal(self.run["id"])
+            first_event = next(
+                item["payload"] for item in reversed(self.manager.events.after(self.run["id"]))
+                if item["payload"].get("kind") == "run.waiting_user"
+            )
+            self.assertEqual(first_wait["status"], "waiting_user")
+            self.assertEqual(
+                first_event["missing_fields"], ["start_date", "end_date", "trip_focus"]
+            )
+
+            self.manager.runs.transition(self.run["id"], "running")
+            await worker.resume(
+                self.manager.runs.get_internal(self.run["id"]), asyncio.Event(), "8月17日出发，玩3天"
+            )
+            second_wait = self.manager.runs.get_internal(self.run["id"])
+            second_event = next(
+                item["payload"] for item in reversed(self.manager.events.after(self.run["id"]))
+                if item["payload"].get("kind") == "run.waiting_user"
+            )
+            self.assertEqual(second_wait["status"], "waiting_user")
+            self.assertEqual(second_event["missing_fields"], ["trip_focus"])
+
+            self.manager.runs.transition(self.run["id"], "running")
+            await worker.resume(
+                self.manager.runs.get_internal(self.run["id"]), asyncio.Event(), "景点为主"
+            )
+        self.assertTrue(finalized["planning_handoff"])
+        self.assertEqual(finalized["pending_brief"]["trip_focus"], "sights_first")
+        self.assertEqual(finalized["pending_brief"]["destination"], "南京")
 
     async def test_finalizer_receives_latest_complete_values_snapshot(self):
         finalized = {}

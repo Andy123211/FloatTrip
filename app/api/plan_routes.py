@@ -1,25 +1,27 @@
-"""规划相关的辅助路由（confirm_modification、optimize_day 等）。"""
+"""规划结果的路线优化、POI 搜索与手动编辑路由。"""
 
 from __future__ import annotations
 
-import json
 from itertools import permutations
 
-from fastapi import APIRouter, Header, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Header, HTTPException
 
 from app.core.auth import decode_token
 from app.core.cache import POI_TTL, get_cached, poi_cache_key, set_cached
 from app.core.database import get_conn
 from app.core.memory import (
-    delete_pending_modification,
     load_itinerary,
-    load_pending_modification,
-    save_itinerary,
     update_plan_json,
 )
-from app.planning.graph import run_confirm_stream
 from app.planning.helpers import amap_key, haversine_km, restaurant_to_dict
+from app.planning.optimizer import meal_coverage_for_visit
+from app.planning.restaurant_enrichment import (
+    generate_restaurant_enrichment,
+    load_restaurant_enrichment,
+    route_fingerprint,
+    save_restaurant_enrichment,
+)
+from app.planning.shadow_profiles import record_route_edit
 from app.providers.amap.poi import (
     ATTRACTION_TYPE,
     normalize_address,
@@ -30,6 +32,67 @@ from app.providers.amap.poi import (
 from pydantic import BaseModel
 
 router = APIRouter()
+
+
+class RestaurantEnrichmentRequest(BaseModel):
+    refresh: bool = False
+
+
+@router.post("/api/plan/{plan_id}/restaurant-enrichment")
+def create_restaurant_enrichment(
+    plan_id: str,
+    req: RestaurantEnrichmentRequest,
+    authorization: str | None = Header(default=None),
+):
+    """Explicit, independent restaurant task; never mutates core plan_json."""
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="需要登录")
+    user_id = decode_token(authorization[7:])
+    if not user_id:
+        raise HTTPException(status_code=401, detail="token 无效或已过期")
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT user_id FROM itineraries WHERE id=?", (plan_id,)
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="行程不存在")
+        if row["user_id"] != user_id:
+            raise HTTPException(status_code=403, detail="无权访问")
+        data = load_itinerary(plan_id, conn)
+        plan = data["plan"]
+        fingerprint = route_fingerprint(plan)
+        existing = load_restaurant_enrichment(plan_id, user_id, fingerprint, conn)
+        if existing and not req.refresh:
+            return {"enrichment": existing, "cached": True}
+    payload = generate_restaurant_enrichment(
+        plan, api_key=amap_key(), search_around=search_around_pois
+    )
+    with get_conn() as conn:
+        save_restaurant_enrichment(plan_id, user_id, payload, conn)
+    return {"enrichment": payload, "cached": False}
+
+
+@router.get("/api/plan/{plan_id}/restaurant-enrichment")
+def get_restaurant_enrichment(
+    plan_id: str,
+    authorization: str | None = Header(default=None),
+):
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="需要登录")
+    user_id = decode_token(authorization[7:])
+    if not user_id:
+        raise HTTPException(status_code=401, detail="token 无效或已过期")
+    with get_conn() as conn:
+        row = conn.execute("SELECT user_id FROM itineraries WHERE id=?", (plan_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="行程不存在")
+        if row["user_id"] != user_id:
+            raise HTTPException(status_code=403, detail="无权访问")
+        data = load_itinerary(plan_id, conn)
+        payload = load_restaurant_enrichment(
+            plan_id, user_id, route_fingerprint(data["plan"]), conn
+        )
+    return {"enrichment": payload}
 
 
 # ─── 路线优化（暴力枚举最短路径）────────────────────────────
@@ -153,6 +216,22 @@ def _optimize_day_timeline(timeline: list[dict]) -> tuple[list[dict], float, flo
                 item["period"]     = time_slots[slot_idx]["period"]
                 slot_idx += 1
 
+    # A moved food street must not retain stale coverage from its old slot.
+    for item in result:
+        if item.get("type") != "attraction":
+            continue
+        try:
+            start_h, start_m = str(item.get("start_time") or "").split(":", 1)
+            end_h, end_m = str(item.get("end_time") or "").split(":", 1)
+            start = int(start_h) * 60 + int(start_m)
+            end = int(end_h) * 60 + int(end_m)
+        except (ValueError, AttributeError):
+            item["meal_coverage"] = None
+            continue
+        item["meal_coverage"] = meal_coverage_for_visit(
+            str(item.get("meal_scene") or "none"), start, end
+        )
+
     return result, original_km, best_km
 
 
@@ -183,6 +262,7 @@ def optimize_day(req: OptimizeDayRequest, authorization: str | None = Header(def
         data = load_itinerary(req.plan_id, conn)
 
     plan = data["plan"]
+    expected_lock_version = data["lock_version"]
     days = plan.get("days", [])
 
     # 找对应天（day 字段 1-based）
@@ -196,9 +276,14 @@ def optimize_day(req: OptimizeDayRequest, authorization: str | None = Header(def
     # 原地更新 plan 并写回 DB
     day_obj["timeline"] = optimized_timeline
     with get_conn() as conn:
-        ok = update_plan_json(req.plan_id, user_id, plan, conn)
+        ok = update_plan_json(
+            req.plan_id, user_id, plan, conn,
+            expected_lock_version=expected_lock_version,
+        )
+        if ok:
+            record_route_edit(req.plan_id, plan, conn)
     if not ok:
-        raise HTTPException(status_code=500, detail="保存失败")
+        raise HTTPException(status_code=409, detail="行程已被其他操作更新，请刷新后重试")
 
     return {
         "optimized_day": day_obj,
@@ -235,101 +320,23 @@ def revert_day(req: RevertDayRequest, authorization: str | None = Header(default
         data = load_itinerary(req.plan_id, conn)
 
     plan = data["plan"]
+    expected_lock_version = data["lock_version"]
     day_obj = next((d for d in plan.get("days", []) if d.get("day") == req.day), None)
     if not day_obj:
         raise HTTPException(status_code=400, detail=f"第 {req.day} 天不存在")
 
     day_obj["timeline"] = req.original_timeline
     with get_conn() as conn:
-        ok = update_plan_json(req.plan_id, user_id, plan, conn)
+        ok = update_plan_json(
+            req.plan_id, user_id, plan, conn,
+            expected_lock_version=expected_lock_version,
+        )
+        if ok:
+            record_route_edit(req.plan_id, plan, conn)
     if not ok:
-        raise HTTPException(status_code=500, detail="保存失败")
+        raise HTTPException(status_code=409, detail="行程已被其他操作更新，请刷新后重试")
 
     return {"reverted_day": day_obj}
-
-
-def _get_user_id(request: Request) -> str | None:
-    auth = request.headers.get("Authorization", "")
-    if not auth.startswith("Bearer "):
-        return None
-    return decode_token(auth[7:])
-
-
-class ConfirmModificationRequest(BaseModel):
-    pending_id: str
-    parent_plan_id: str | None = None
-
-
-@router.post("/api/plan/confirm_modification")
-async def confirm_modification(req: ConfirmModificationRequest, request: Request):
-    """用户确认有顾虑的修改意见后，续跑 meal_search → finalize 并返回 SSE。"""
-    user_id = _get_user_id(request)
-    if not user_id:
-        from fastapi import HTTPException
-        raise HTTPException(status_code=401, detail="需要登录")
-
-    # 加载 pending 状态
-    with get_conn() as conn:
-        pending = load_pending_modification(req.pending_id, conn)
-
-    if not pending or pending["user_id"] != user_id:
-        from fastapi import HTTPException
-        raise HTTPException(status_code=404, detail="修改状态不存在或已过期")
-
-    pending_state = pending["state"]
-    saved_plan_id: list[str] = []
-    parent_plan_id = req.parent_plan_id
-
-    def memory_writer(final_plan: dict, state) -> None:
-        planner_checkpoint = {
-            "route": state.route,
-            "pois":  state.pois,
-            "planner_reviewer_dialogue": state.planner_reviewer_dialogue,
-            "destination": str(state.destination or ""),
-            "travel_start_date": str(state.travel_start_date or ""),
-            "travel_end_date":   str(state.travel_end_date or ""),
-            "days": state.days,
-            "attraction_preference": state.attraction_preference,
-            "food_preference":       state.food_preference,
-            "habit_preference":      state.habit_preference,
-            "weather_forecast": state.weather_forecast,
-            "weather_note":     state.weather_note,
-            "max_per_day":      state.max_per_day,
-            "query":            state.query,
-        }
-        with get_conn() as conn:
-            pid = save_itinerary(
-                user_id, final_plan, pending_state.get("query", ""),
-                conn,
-                parent_id=parent_plan_id,
-                planner_state=planner_checkpoint,
-            )
-            # 确认后删除 pending 记录
-            delete_pending_modification(req.pending_id, conn)
-        saved_plan_id.append(pid)
-
-    async def gen():
-        try:
-            async for ev in run_confirm_stream(
-                pending_state,
-                memory_writer=memory_writer,
-            ):
-                if ev.get("type") == "result" and ev.get("success") and saved_plan_id:
-                    ev["plan_id"] = saved_plan_id[0]
-                yield f"data: {json.dumps(ev, ensure_ascii=False)}\n\n"
-        except Exception as e:
-            err = {"type": "error", "message": str(e)}
-            yield f"data: {json.dumps(err, ensure_ascii=False)}\n\n"
-
-    return StreamingResponse(
-        gen(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-            "Connection": "keep-alive",
-        },
-    )
 
 
 # ─── 手动编辑：POI 搜索代理 ──────────────────────────────────
@@ -442,6 +449,7 @@ def save_timeline(
         data = load_itinerary(plan_id, conn)
 
     plan = data["plan"]
+    expected_lock_version = data["lock_version"]
     day_by_no = {d.get("day"): d for d in plan.get("days", [])}
     for payload in req.days:
         day_obj = day_by_no.get(payload.day)
@@ -452,13 +460,35 @@ def save_timeline(
                 raise HTTPException(status_code=422, detail="timeline 条目缺少 type")
             if item["type"] == "attraction" and not item.get("name"):
                 raise HTTPException(status_code=422, detail="景点条目缺少 name")
+            if plan.get("scoring_profile") and item["type"] != "attraction":
+                raise HTTPException(status_code=422, detail="核心路线只允许 attraction；餐厅请使用独立推荐")
+            if item["type"] == "attraction":
+                has_times = bool(item.get("start_time") and item.get("end_time"))
+                if not has_times and not plan.get("scoring_profile"):
+                    item["meal_coverage"] = None
+                    continue
+                try:
+                    start_h, start_m = str(item.get("start_time") or "").split(":", 1)
+                    end_h, end_m = str(item.get("end_time") or "").split(":", 1)
+                    item["meal_coverage"] = meal_coverage_for_visit(
+                        str(item.get("meal_scene") or "none"),
+                        int(start_h) * 60 + int(start_m),
+                        int(end_h) * 60 + int(end_m),
+                    )
+                except (ValueError, AttributeError):
+                    raise HTTPException(status_code=422, detail="景点时间格式必须为 HH:MM")
         _recalc_dists(payload.timeline)
         day_obj["timeline"] = payload.timeline
 
     with get_conn() as conn:
-        ok = update_plan_json(plan_id, user_id, plan, conn)
+        ok = update_plan_json(
+            plan_id, user_id, plan, conn,
+            expected_lock_version=expected_lock_version,
+        )
+        if ok:
+            record_route_edit(plan_id, plan, conn)
     if not ok:
-        raise HTTPException(status_code=500, detail="保存失败")
+        raise HTTPException(status_code=409, detail="行程已被其他操作更新，请刷新后重试")
 
     return {"plan": plan}
 
@@ -547,6 +577,7 @@ def save_plan_metadata(
         data = load_itinerary(plan_id, conn)
 
     plan = data["plan"]
+    expected_lock_version = data["lock_version"]
     if req.hotel is not None:
         plan["hotel"] = req.hotel
     if req.notes is not None:
@@ -563,9 +594,12 @@ def save_plan_metadata(
                 day_obj["theme"] = theme
 
     with get_conn() as conn:
-        ok = update_plan_json(plan_id, user_id, plan, conn)
+        ok = update_plan_json(
+            plan_id, user_id, plan, conn,
+            expected_lock_version=expected_lock_version,
+        )
     if not ok:
-        raise HTTPException(status_code=500, detail="保存失败")
+        raise HTTPException(status_code=409, detail="行程已被其他操作更新，请刷新后重试")
 
     return {"ok": True}
 
@@ -622,3 +656,9 @@ def route_walking(
                     pass
 
     return {"coords": coords, "distance": path.get("distance"), "duration": path.get("duration")}
+
+
+@router.post("/api/plan/{retired_action}", include_in_schema=False)
+async def removed_plan_action(retired_action: str):
+    """Prevent removed plan actions from falling through to the static mount."""
+    raise HTTPException(status_code=404, detail="Not Found")

@@ -25,13 +25,27 @@ def resolve_llm_provider() -> LLMProvider:
     return provider  # type: ignore
 
 
-def build_chat_llm(*, model: str | None = None, temperature: float = 0) -> Any:
+def build_chat_llm(
+    *,
+    model: str | None = None,
+    temperature: float = 0,
+    provider: LLMProvider | None = None,
+    thinking: bool = False,
+    reasoning_effort: str | None = None,
+) -> Any:
     """创建 Chat 客户端（自动选择提供商）。"""
-    provider = resolve_llm_provider()
+    provider = provider or resolve_llm_provider()
     if provider == "deepseek":
         from app.llm.deepseek import build_chat_deepseek
-        return build_chat_deepseek(model=model, temperature=temperature)
+        return build_chat_deepseek(
+            model=model,
+            temperature=temperature,
+            thinking=thinking,
+            reasoning_effort=reasoning_effort,
+        )
     elif provider == "doubao":
+        if thinking:
+            raise ValueError("thinking mode is only supported by the DeepSeek provider")
         from app.llm.doubao import build_chat_doubao
         return build_chat_doubao(model=model, temperature=temperature)
 
@@ -41,12 +55,23 @@ def build_structured_llm(
     *,
     model: str | None = None,
     temperature: float = 0,
+    provider: LLMProvider | None = None,
+    thinking: bool = False,
+    reasoning_effort: str | None = None,
 ) -> Any:
     """创建结构化输出客户端（自动选择提供商）。"""
-    provider = resolve_llm_provider()
+    provider = provider or resolve_llm_provider()
     if provider == "deepseek":
         from app.llm.deepseek import build_structured_deepseek
-        return build_structured_deepseek(schema, model=model, temperature=temperature)
+        return build_structured_deepseek(
+            schema,
+            model=model,
+            temperature=temperature,
+            thinking=thinking,
+            reasoning_effort=reasoning_effort,
+        )
     elif provider == "doubao":
+        if thinking:
+            raise ValueError("thinking mode is only supported by the DeepSeek provider")
         from app.llm.doubao import build_structured_doubao
         return build_structured_doubao(schema, model=model, temperature=temperature)

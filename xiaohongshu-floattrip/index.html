@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080,height=1440,initial-scale=1" />
+    <title>FloatTrip 小红书六图</title>
+    <script>
+      document.documentElement.dataset.poster = new URLSearchParams(location.search).get("poster") || "";
+    </script>
+    <style>
+      * { box-sizing: border-box; }
+      html, body { margin: 0; width: 1080px; height: 1440px; overflow: hidden; background: #f5f8fa; }
+      body { font-family: "PingFang SC", "Heiti SC", sans-serif; color: #101b2d; }
+      #floattrip-carousel { position: relative; width: 1080px; height: 1440px; overflow: hidden; background: #f5f8fa; }
+      .scene { position: absolute; inset: 0; width: 1080px; height: 1440px; overflow: hidden; background-color: #f5f8fa; }
+      .scene:not(:first-child) { opacity: 0; }
+      html[data-poster]:not([data-poster=""]) .scene { display: none !important; opacity: 1 !important; transform: none !important; clip-path: none !important; }
+      html[data-poster="1"] #scene1, html[data-poster="2"] #scene2, html[data-poster="3"] #scene3,
+      html[data-poster="4"] #scene4, html[data-poster="5"] #scene5, html[data-poster="6"] #scene6 { display: block !important; }
+      .scene-content { position: relative; z-index: 2; display: flex; flex-direction: column; width: 100%; height: 100%; padding: 64px 68px 58px; gap: 26px; }
+      .decor { position: absolute; z-index: 0; pointer-events: none; }
+      .orb { border-radius: 50%; }
+      .orb-blue { background: #d9f4fc; }
+      .orb-lime { background: #eaf99d; }
+      .orb-coral { background: #ffd8cf; }
+      .route-line { position: absolute; inset: 0; z-index: 1; pointer-events: none; opacity: .42; }
+      .route-line path { fill: none; stroke: #22b8e6; stroke-width: 3; stroke-linecap: round; stroke-dasharray: 8 14; }
+      .topbar { display: flex; align-items: center; justify-content: space-between; min-height: 44px; }
+      .brand { display: flex; align-items: center; gap: 13px; font-size: 23px; font-weight: 800; letter-spacing: -.02em; }
+      .brand-mark { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 13px; background: #0089b3; color: #fff; font-size: 23px; box-shadow: 0 8px 20px rgba(34,184,230,.25); }
+      .page-no { font: 700 17px SFMono-Regular, Menlo, monospace; color: #3f5d72; letter-spacing: .08em; }
+      .kicker { width: fit-content; padding: 10px 16px; border: 1.5px solid rgba(16,27,45,.18); border-radius: 999px; font: 700 15px SFMono-Regular, Menlo, monospace; letter-spacing: .05em; }
+      h1, h2, p { margin: 0; }
+      .hero-title { max-width: 900px; font-size: 76px; line-height: 1.08; font-weight: 900; letter-spacing: -.055em; }
+      .title { max-width: 900px; font-size: 64px; line-height: 1.1; font-weight: 900; letter-spacing: -.05em; }
+      .accent { color: #008bb6; }
+      .coral { color: #ed5939; }
+      .subtitle { max-width: 860px; font-size: 25px; line-height: 1.55; font-weight: 500; color: #53697b; }
+      .chips { display: flex; flex-wrap: wrap; gap: 12px; }
+      .chip { padding: 10px 15px; border-radius: 999px; background: rgba(255,255,255,.86); border: 1px solid rgba(16,27,45,.12); font: 700 15px SFMono-Regular, Menlo, monospace; box-shadow: 0 6px 16px rgba(16,27,45,.06); }
+      .chip.blue { color: #006f94; border-color: rgba(34,184,230,.4); background: #e5f9ff; }
+      .chip.lime { background: #eaf99d; border-color: #d0e96a; }
+      .chip.coral { background: #fff0ec; border-color: #ffb4a4; color: #a93620; }
+      .footer-line { margin-top: auto; display: flex; align-items: center; gap: 14px; color: #4e6577; font-size: 17px; font-weight: 600; }
+      .footer-line::before { content: ""; width: 58px; height: 3px; background: #22b8e6; border-radius: 3px; }
+      .phone { position: absolute; width: 390px; aspect-ratio: 1206 / 2622; border: 10px solid #101b2d; border-radius: 54px; overflow: hidden; background: #fff; box-shadow: 0 30px 70px rgba(16,27,45,.28); }
+      .phone::after { content: ""; position: absolute; top: 10px; left: 50%; width: 112px; height: 27px; transform: translateX(-50%); background: #101b2d; border-radius: 20px; }
+      .phone img { width: 100%; height: 100%; object-fit: cover; display: block; }
+      .phone.small { width: 310px; border-width: 8px; border-radius: 44px; }
+      .phone.large { width: 438px; }
+      .note-card { padding: 24px 26px; border-radius: 28px; background: rgba(255,255,255,.93); border: 1px solid rgba(16,27,45,.1); box-shadow: 0 18px 42px rgba(16,27,45,.1); }
+      .note-card strong { display: block; font-size: 24px; line-height: 1.25; }
+      .note-card span { display: block; margin-top: 8px; color: #607587; font-size: 18px; line-height: 1.45; }
+      .number { font: 900 68px SFMono-Regular, Menlo, monospace; color: #22b8e6; line-height: 1; }
+
+      /* Scene 1 */
+      #scene1 .scene-content { padding-bottom: 50px; }
+      #scene1 .hero-title { margin-top: 8px; }
+      #scene1 .device-stage { position: relative; flex: 1; min-height: 690px; }
+      #scene1 .home-phone { left: 74px; bottom: 12px; width: 330px; transform: rotate(-7deg); }
+      #scene1 .map-phone { right: 58px; bottom: 12px; width: 350px; transform: rotate(7deg); }
+      #scene1 .float-card { position: absolute; z-index: 5; right: 30px; top: 46px; width: 330px; }
+      #scene1 .orb-a { width: 360px; height: 360px; right: -145px; top: -150px; }
+      #scene1 .orb-b { width: 240px; height: 240px; left: -95px; bottom: 180px; }
+      #scene1 .footer-line, #scene4 .footer-line, #scene5 .footer-line { position: relative; z-index: 20; width: fit-content; padding: 10px 14px; border-radius: 14px; background: rgba(245,248,250,.94); box-shadow: 0 8px 20px rgba(16,27,45,.08); }
+
+      /* Scene 2 */
+      #scene2 .problem-layout { display: grid; grid-template-columns: 1fr 380px; gap: 28px; flex: 1; min-height: 760px; }
+      .problem-list { display: flex; flex-direction: column; gap: 18px; padding-top: 30px; }
+      .problem { display: grid; grid-template-columns: 52px 1fr; gap: 17px; align-items: start; padding: 21px 22px; border-radius: 23px; background: #fff; border: 1px solid rgba(16,27,45,.09); box-shadow: 0 12px 26px rgba(16,27,45,.07); }
+      .problem i { display: grid; place-items: center; width: 52px; height: 52px; border-radius: 17px; background: #fff0ec; color: #ed5939; font: normal 900 25px SFMono-Regular, Menlo, monospace; }
+      .problem strong { display: block; font-size: 22px; }
+      .problem span { display: block; margin-top: 5px; color: #617587; font-size: 17px; line-height: 1.35; }
+      #scene2 .brief-phone { right: 64px; bottom: 48px; transform: rotate(3deg); }
+      #scene2 .gate-label { position: absolute; z-index: 4; right: 46px; bottom: 74px; width: 350px; background: #eaf99d; }
+      #scene2 .gate-label span { color: #40596b; }
+      #scene2 .orb-a { width: 300px; height: 300px; left: -150px; bottom: -120px; }
+
+      /* Scene 3 */
+      #scene3 .title { max-width: 900px; font-size: 62px; }
+      #scene3 .title .accent { display: block; }
+      .agent-board { position: relative; height: 510px; margin-top: 8px; padding: 116px 24px 30px; border-radius: 38px; background: #eaf8fc; border: 1px solid #bfeaf6; overflow: hidden; }
+      .data-pill { position: absolute; top: 32px; padding: 13px 17px; border-radius: 18px; background: #fff; border: 1px solid #a8dfef; font: 700 15px SFMono-Regular, Menlo, monospace; }
+      .data-weather { left: 190px; }
+      .data-poi { left: 380px; }
+      .data-pill::after { content: "↓"; position: absolute; left: 50%; bottom: -36px; transform: translateX(-50%); color: #22b8e6; font-size: 28px; }
+      .agent-row { display: grid; grid-template-columns: 1fr 72px 1fr; align-items: center; gap: 12px; }
+      .agent-card { min-height: 214px; padding: 24px; border-radius: 26px; background: #fff; box-shadow: 0 16px 30px rgba(16,27,45,.1); }
+      .agent-card.planner { border: 2px solid #22b8e6; }
+      .agent-card.reviewer { border: 2px solid #9f79e9; }
+      .agent-card .agent-name { font: 800 21px SFMono-Regular, Menlo, monospace; }
+      .agent-card p { margin-top: 14px; color: #607587; font-size: 18px; line-height: 1.45; }
+      .loop { text-align: center; color: #7853c7; font-size: 43px; font-weight: 900; }
+      .time-link-down { position: absolute; right: 151px; top: 335px; width: 72px; height: 72px; border-right: 3px solid #32cdbd; border-bottom: 3px solid #32cdbd; border-radius: 0 0 24px 0; }
+      .time-link-down::after { content: "↓"; position: absolute; right: -13px; bottom: -34px; color: #0aa79d; font-size: 34px; font-weight: 900; }
+      .time-link-back { position: absolute; left: 151px; top: 335px; width: 72px; height: 72px; border-left: 3px dashed #7853c7; border-bottom: 3px dashed #7853c7; border-radius: 0 0 0 24px; }
+      .time-link-back::after { content: "↑"; position: absolute; left: -13px; top: -34px; color: #7853c7; font-size: 34px; font-weight: 900; }
+      .time-agent { position: absolute; left: 175px; bottom: 20px; width: 320px; padding: 18px; border: 2px solid #32cdbd; border-radius: 22px; background: #fff; text-align: center; font: 800 18px SFMono-Regular, Menlo, monospace; }
+      .time-agent span { display: block; margin-top: 5px; font-family: "PingFang SC", sans-serif; font-size: 15px; color: #537081; }
+      #scene3 .planning-phone { right: 72px; bottom: 12px; width: 286px; transform: rotate(5deg); }
+      #scene3 .agent-board { width: 670px; }
+      #scene3 .footer-line { margin-top: 2px; }
+
+      /* Scene 4 */
+      #scene4 .memory-stage { position: relative; flex: 1; }
+      #scene4 .profile-phone { left: 18px; bottom: 12px; width: 340px; transform: rotate(-4deg); }
+      .memory-stack { position: absolute; right: 0; top: 56px; width: 490px; display: flex; flex-direction: column; gap: 18px; }
+      .memory-item { position: relative; padding: 25px 25px 25px 86px; border-radius: 26px; background: #fff; box-shadow: 0 14px 30px rgba(16,27,45,.09); }
+      .memory-item::before { position: absolute; left: 24px; top: 24px; display: grid; place-items: center; width: 45px; height: 45px; border-radius: 15px; font-size: 23px; }
+      .memory-item:nth-child(1)::before { content: "♡"; background: #e5f9ff; color: #00a8d8; }
+      .memory-item:nth-child(2)::before { content: "!"; background: #fff0ec; color: #ed5939; font-weight: 900; }
+      .memory-item:nth-child(3)::before { content: "✓"; background: #effbc1; color: #608700; font-weight: 900; }
+      .memory-item strong { display: block; font-size: 22px; }
+      .memory-item span { display: block; margin-top: 7px; font-size: 17px; line-height: 1.4; color: #607587; }
+      .priority { margin-top: 8px; padding: 18px 22px; border-radius: 24px; background: #101b2d; color: #fff; font-size: 20px; line-height: 1.5; }
+      .priority b { color: #d9f35a; }
+      #scene4 .orb-a { width: 260px; height: 260px; right: -100px; bottom: -80px; }
+
+      /* Scene 5 */
+      #scene5 .device-stage { position: relative; flex: 1; }
+      #scene5 .map-phone { left: 42px; bottom: 12px; width: 340px; transform: rotate(-5deg); }
+      #scene5 .edit-phone { right: 36px; bottom: 12px; width: 350px; transform: rotate(6deg); }
+      .feature-ribbon { position: absolute; z-index: 6; left: 50%; top: 42px; transform: translateX(-50%); display: flex; gap: 10px; padding: 14px; border-radius: 24px; background: #101b2d; box-shadow: 0 16px 36px rgba(16,27,45,.22); white-space: nowrap; }
+      .feature-ribbon span { padding: 9px 12px; border-radius: 14px; color: #fff; font-size: 15px; font-weight: 700; }
+      .feature-ribbon span:first-child { background: #22b8e6; color: #101b2d; }
+      #scene5 .orb-a { width: 330px; height: 330px; left: -150px; top: 300px; }
+
+      /* Scene 6 */
+      #scene6 { background-color: #22b8e6; color: #101b2d; }
+      #scene6 .scene-content { padding: 72px 78px; }
+      #scene6 .brand-mark { background: #101b2d; }
+      #scene6 .page-no { color: #103e54; }
+      #scene6 .open-title { max-width: 860px; font-size: 76px; line-height: 1.06; font-weight: 900; letter-spacing: -.055em; }
+      .open-panel { display: grid; grid-template-columns: 1fr 320px; gap: 40px; align-items: center; margin-top: 24px; padding: 42px; border-radius: 38px; background: #f5f8fa; box-shadow: 0 26px 60px rgba(16,27,45,.2); }
+      .repo-label { font: 700 16px SFMono-Regular, Menlo, monospace; color: #006b90; }
+      .repo-name { margin-top: 15px; font: 800 29px SFMono-Regular, Menlo, monospace; line-height: 1.42; word-break: break-all; }
+      .cta-row { display: flex; gap: 12px; margin-top: 28px; }
+      .cta { padding: 14px 18px; border-radius: 15px; background: #101b2d; color: #fff; font: 700 15px SFMono-Regular, Menlo, monospace; }
+      .qr-wrap { padding: 18px; border-radius: 27px; background: #fff; border: 2px solid #101b2d; text-align: center; }
+      .qr-wrap img { width: 100%; display: block; image-rendering: pixelated; }
+      .qr-wrap span { display: block; margin-top: 10px; font-size: 16px; font-weight: 700; }
+      .open-notes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+      .open-note { min-height: 160px; padding: 23px; border-radius: 28px; background: rgba(255,255,255,.28); border: 1px solid rgba(16,27,45,.18); }
+      .open-note b { display: block; font: 900 42px SFMono-Regular, Menlo, monospace; }
+      .open-note span { display: block; margin-top: 9px; font-size: 19px; line-height: 1.35; font-weight: 700; }
+      #scene6 .subtitle { color: #174a63; font-weight: 600; }
+      #scene6 .footer-line { color: #123c52; }
+      #scene6 .footer-line::before { background: #101b2d; }
+      #scene6 .orb-a { width: 350px; height: 350px; right: -170px; bottom: -160px; background: rgba(217,243,90,.72); }
+    </style>
+  </head>
+  <body>
+    <div id="floattrip-carousel" data-composition-id="floattrip-xiaohongshu" data-start="0" data-duration="24" data-width="1080" data-height="1440">
+      <section id="scene1" class="scene" data-poster="1">
+        <div class="decor orb orb-blue orb-a"></div><div class="decor orb orb-lime orb-b"></div>
+        <svg class="route-line" viewBox="0 0 1080 1440"><path d="M-30 230 C260 90 340 300 600 210 S920 80 1120 230"/></svg>
+        <div class="scene-content">
+          <div class="topbar"><div class="brand"><span class="brand-mark">⛵</span>FloatTrip · 轻舟</div><div class="page-no">01 / 06</div></div>
+          <div class="kicker">OPEN SOURCE · MULTI-AGENT TRAVEL</div>
+          <h1 class="hero-title">不是生成一篇攻略，<span class="accent">而是组织一群 Agent</span> 规划旅行</h1>
+          <p class="subtitle">一句话 → 个性化记忆 → 真实 POI → 可编辑地图行程</p>
+          <div class="chips"><span class="chip blue">LangGraph</span><span class="chip lime">长期记忆</span><span class="chip coral">高德真实 POI</span></div>
+          <div class="device-stage">
+            <div class="phone home-phone poster-device"><img src="assets/app-home.png" alt="轻舟首页" /></div>
+            <div class="phone map-phone poster-device"><img src="assets/app-map-itinerary.png" alt="轻舟地图行程" /></div>
+            <div class="note-card float-card"><strong>从一句话走到能出发的路线</strong><span>真正可追踪、可编辑、可继续协作</span></div>
+          </div>
+          <div class="footer-line">一个面向真实旅行约束的开源 AI 项目</div>
+        </div>
+      </section>
+
+      <section id="scene2" class="scene" data-poster="2">
+        <div class="decor orb orb-coral orb-a"></div>
+        <div class="scene-content">
+          <div class="topbar"><div class="brand"><span class="brand-mark">⛵</span>FloatTrip · 轻舟</div><div class="page-no">02 / 06</div></div>
+          <div class="kicker">WHY MULTI-AGENT?</div>
+          <h2 class="title">旅行规划不该交给一个<span class="coral">万能 Agent</span></h2>
+          <p class="subtitle">理解需求、查真实地点、排路线和检查冲突，本来就是不同类型的工作。</p>
+          <div class="problem-layout">
+            <div class="problem-list">
+              <div class="problem"><i>01</i><div><strong>偏好容易被忘记</strong><span>每次出发都要重新解释节奏与避雷项</span></div></div>
+              <div class="problem"><i>02</i><div><strong>地点可能被编造</strong><span>模型知识不是实时、可验证的旅行数据</span></div></div>
+              <div class="problem"><i>03</i><div><strong>路线看似合理却折返</strong><span>景点清单不等于地理上可执行的行程</span></div></div>
+              <div class="problem"><i>04</i><div><strong>开放时间容易冲突</strong><span>事实核验不该混在同一次生成里</span></div></div>
+            </div>
+            <div class="phone small brief-phone"><img src="assets/app-planning-brief.png" alt="Planning Brief" /></div>
+            <div class="note-card gate-label"><strong>先确认，再开跑</strong><span>Planning Brief 把错误挡在正式规划之前</span></div>
+          </div>
+          <div class="footer-line">多一步确认，换来更少返工与更清晰的边界</div>
+        </div>
+      </section>
+
+      <section id="scene3" class="scene" data-poster="3">
+        <div class="scene-content">
+          <div class="topbar"><div class="brand"><span class="brand-mark">⛵</span>FloatTrip · 轻舟</div><div class="page-no">03 / 06</div></div>
+          <div class="kicker">CONTROLLED FEEDBACK LOOP</div>
+          <h2 class="title">Planner 不应该<span class="accent">自己给自己打分</span></h2>
+          <p class="subtitle">生成、审阅与开放时间核验分开，各自只处理最擅长的判断。</p>
+          <div class="agent-board">
+            <div class="data-pill data-weather">天气数据</div><div class="data-pill data-poi">高德真实 POI</div>
+            <div class="agent-row">
+              <div class="agent-card planner"><div class="agent-name">Planner Agent</div><p>组织逐日路线、节奏与体验，把真实候选地点排成可执行行程。</p></div>
+              <div class="loop">⇄</div>
+              <div class="agent-card reviewer"><div class="agent-name">Reviewer Agent</div><p>独立检查动线、候选池约束和需求响应，给出定向反馈。</p></div>
+            </div>
+            <div class="time-link-down"></div><div class="time-link-back"></div>
+            <div class="time-agent">Time Check Agent<span>开放时间 · 闭馆日 · 时间槽冲突</span></div>
+          </div>
+          <div class="phone planning-phone"><img src="assets/app-live-planning.png" alt="实时规划进度" /></div>
+          <div class="chips"><span class="chip blue">有限轮次</span><span class="chip">职责隔离</span><span class="chip lime">实时进度</span></div>
+          <div class="footer-line">不是堆 Agent，而是为每类错误建立明确的纠错边界</div>
+        </div>
+      </section>
+
+      <section id="scene4" class="scene" data-poster="4">
+        <div class="decor orb orb-blue orb-a"></div>
+        <div class="scene-content">
+          <div class="topbar"><div class="brand"><span class="brand-mark">⛵</span>FloatTrip · 轻舟</div><div class="page-no">04 / 06</div></div>
+          <div class="kicker">MEMORY, WITH USER CONTROL</div>
+          <h2 class="title">它会记住你，<span class="accent">但记忆由你控制</span></h2>
+          <p class="subtitle">长期画像帮助下一次规划，本次明确需求永远拥有更高优先级。</p>
+          <div class="memory-stage">
+            <div class="phone profile-phone"><img src="assets/app-profile.png" alt="旅行画像" /></div>
+            <div class="memory-stack">
+              <div class="memory-item"><strong>偏好</strong><span>慢节奏、博物馆、亲子友好等旅行习惯</span></div>
+              <div class="memory-item"><strong>避雷</strong><span>不吃辣、避免早起、不喜欢密集打卡</span></div>
+              <div class="memory-item"><strong>必须满足</strong><span>无障碍、同行人需求与交通方式约束</span></div>
+              <div class="priority">可查看 · 可修改 · 可忘记<br><b>当前需求 &gt; 历史记忆</b></div>
+            </div>
+          </div>
+          <div class="footer-line">个性化不是贴标签，而是透明、可撤回的上下文</div>
+        </div>
+      </section>
+
+      <section id="scene5" class="scene" data-poster="5">
+        <div class="decor orb orb-lime orb-a"></div>
+        <div class="scene-content">
+          <div class="topbar"><div class="brand"><span class="brand-mark">⛵</span>FloatTrip · 轻舟</div><div class="page-no">05 / 06</div></div>
+          <div class="kicker">OUTPUT YOU CAN KEEP EDITING</div>
+          <h2 class="title">不是一段答案，<span class="accent">是一份能继续改的行程</span></h2>
+          <p class="subtitle">真实 POI、逐日路线与地图联动，生成后仍能替换地点、调整时段和优化动线。</p>
+          <div class="device-stage">
+            <div class="feature-ribbon"><span>真实 POI</span><span>地图联动</span><span>换点</span><span>改时段</span><span>路线优化</span></div>
+            <div class="phone map-phone"><img src="assets/app-map-itinerary.png" alt="地图行程" /></div>
+            <div class="phone edit-phone"><img src="assets/app-trip-editor.png" alt="行程编辑器" /></div>
+          </div>
+          <div class="footer-line">结果不是一次性文本，而是可以持续协作的旅行对象</div>
+        </div>
+      </section>
+
+      <section id="scene6" class="scene" data-poster="6">
+        <div class="decor orb orb-a"></div>
+        <div class="scene-content">
+          <div class="topbar"><div class="brand"><span class="brand-mark">⛵</span>FloatTrip · 轻舟</div><div class="page-no">06 / 06</div></div>
+          <div class="kicker">MIT LICENSE · OPEN SOURCE</div>
+          <h2 class="open-title">FloatTrip 已开源，欢迎一起把旅行规划做得更可靠</h2>
+          <p class="subtitle">如果你也在关注 Multi-Agent、长期记忆和真实世界约束，欢迎来 GitHub 看看。</p>
+          <div class="open-panel">
+            <div>
+              <div class="repo-label">GITHUB REPOSITORY</div>
+              <div class="repo-name">github.com/shouzhuoshouzhuo/FloatTrip</div>
+              <div class="cta-row"><span class="cta">★ Star</span><span class="cta">! Issue</span><span class="cta">↗ Contribute</span></div>
+            </div>
+            <div class="qr-wrap"><img src="assets/github-qr.png" alt="FloatTrip GitHub 二维码" /><span>扫码访问项目</span></div>
+          </div>
+          <div class="open-notes">
+            <div class="open-note"><b>01</b><span>看看真实产品与 Agent 编排</span></div>
+            <div class="open-note"><b>02</b><span>提出旅行场景和工程问题</span></div>
+            <div class="open-note"><b>03</b><span>贡献代码、设计或文档</span></div>
+          </div>
+          <div class="footer-line">Star · Issue · Contribute — 一起让 AI 旅行规划真正可用</div>
+        </div>
+      </section>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js" crossorigin="anonymous"></script>
+    <script>
+      window.__timelines = window.__timelines || {};
+      if (window.gsap && !document.documentElement.dataset.poster) {
+        const tl = gsap.timeline({ paused: true });
+        const scenes = ["#scene1", "#scene2", "#scene3", "#scene4", "#scene5", "#scene6"];
+        function enter(scene, at, direction) {
+          tl.from(scene + " .brand", { x: -34, opacity: 0, duration: .42, ease: "expo.out" }, at + .18)
+            .from(scene + " .page-no", { scale: .72, opacity: 0, duration: .3, ease: "back.out(1.8)" }, at + .28)
+            .from(scene + " .kicker", { y: -22, opacity: 0, duration: .36, ease: "power3.out" }, at + .34)
+            .from(scene + " h1, " + scene + " h2", { x: direction * 56, opacity: 0, duration: .62, ease: "back.out(1.25)" }, at + .46)
+            .from(scene + " .subtitle", { y: 30, opacity: 0, duration: .46, ease: "circ.out" }, at + .68)
+            .from(scene + " .phone, " + scene + " .agent-board, " + scene + " .memory-stack, " + scene + " .open-panel", { scale: .9, opacity: 0, duration: .68, stagger: .08, ease: "elastic.out(1,.55)" }, at + .78)
+            .from(scene + " .chips > *, " + scene + " .open-note, " + scene + " .problem", { y: 26, opacity: 0, duration: .38, stagger: .06, ease: "power2.out" }, at + 1.08)
+            .from(scene + " .footer-line", { x: -30, opacity: 0, duration: .36, ease: "sine.out" }, at + 1.28);
+        }
+        enter("#scene1", 0, -1);
+        for (let i = 1; i < scenes.length; i += 1) {
+          const at = i * 4;
+          const oldScene = scenes[i - 1];
+          const newScene = scenes[i];
+          if (i === 2 || i === 5) {
+            tl.set(newScene, { opacity: 1, clipPath: "circle(0% at 88% 10%)", zIndex: 3 }, at)
+              .to(newScene, { clipPath: "circle(145% at 88% 10%)", duration: .52, ease: "power3.inOut" }, at)
+              .set(oldScene, { opacity: 0 }, at + .52);
+          } else {
+            tl.set(newScene, { opacity: 1, xPercent: 100, zIndex: 3 }, at)
+              .to(oldScene, { xPercent: -18, scale: .96, duration: .42, ease: "back.inOut(1.2)" }, at)
+              .to(newScene, { xPercent: 0, duration: .42, ease: "back.inOut(1.2)" }, at)
+              .set(oldScene, { opacity: 0, xPercent: 0, scale: 1 }, at + .42);
+          }
+          enter(newScene, at, i % 2 ? 1 : -1);
+        }
+        tl.to("#scene6 .open-panel", { scale: 1.025, duration: .7, ease: "sine.inOut" }, 22.4)
+          .to("#scene6 .scene-content", { opacity: 0, duration: .55, ease: "power2.in" }, 23.35);
+        window.__timelines["floattrip-xiaohongshu"] = tl;
+      } else {
+        window.__timelines["floattrip-xiaohongshu"] = { paused: true, duration: () => 24 };
+      }
+    </script>
+  </body>
+</html>

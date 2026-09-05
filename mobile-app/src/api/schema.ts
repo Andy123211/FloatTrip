@@ -181,26 +181,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/plan/confirm_modification": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Confirm Modification
-         * @description 用户确认有顾虑的修改意见后，续跑 meal_search → finalize 并返回 SSE。
-         */
-        post: operations["confirm_modification_api_plan_confirm_modification_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/poi/search": {
         parameters: {
             query?: never;
@@ -738,31 +718,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/plan/stream": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Create Plan Stream
-         * @description 分阶段 SSE：逐节点推送进度，末帧推送完整 plan。
-         *
-         *     扩展能力：
-         *     - thread_id: 多轮续接（missing_fields 后补充信息）
-         *     - plan_id + modification_notes: 修改已有行程（走 checkpoint 迷你图）
-         *     - Authorization: 登录用户自动保存行程 + 记忆提取 + checkpoint 存储
-         */
-        post: operations["create_plan_stream_api_plan_stream_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/": {
         parameters: {
             query?: never;
@@ -852,13 +807,6 @@ export interface components {
             /** Excluded Memory Fact Ids */
             excluded_memory_fact_ids?: string[] | null;
         };
-        /** ConfirmModificationRequest */
-        ConfirmModificationRequest: {
-            /** Pending Id */
-            pending_id: string;
-            /** Parent Plan Id */
-            parent_plan_id?: string | null;
-        };
         /** ConversationCreate */
         ConversationCreate: {
             /**
@@ -871,6 +819,60 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /** ItineraryCard */
+        ItineraryCard: {
+            /** Itinerary Id */
+            itinerary_id: string;
+            /** Root Id */
+            root_id: string;
+            /** Version */
+            version: number;
+            /**
+             * Destination
+             * @default
+             */
+            destination: string;
+            /** Duration Days */
+            duration_days?: number | null;
+            /** Start Date */
+            start_date?: string | null;
+            /** End Date */
+            end_date?: string | null;
+            /**
+             * Created At
+             * @default
+             */
+            created_at: string;
+            /**
+             * Is Modified
+             * @default false
+             */
+            is_modified: boolean;
+            /** Highlights */
+            highlights?: string[];
+        };
+        /** ItineraryCollectionArtifact */
+        ItineraryCollectionArtifact: {
+            /**
+             * Type
+             * @default itinerary_collection
+             * @constant
+             */
+            type: "itinerary_collection";
+            /**
+             * Title
+             * @default 找到这些保存的方案
+             */
+            title: string;
+            /**
+             * Match Kind
+             * @default exact
+             * @enum {string}
+             */
+            match_kind: "exact" | "near" | "mixed";
+            /** Items */
+            items?: components["schemas"]["ItineraryCard"][];
         };
         /** MemoryCreate */
         MemoryCreate: {
@@ -913,6 +915,14 @@ export interface components {
                 [key: string]: string;
             } | null;
         };
+        /** MessageAccepted */
+        MessageAccepted: {
+            message: components["schemas"]["MessagePublic"];
+            /** Run */
+            run: {
+                [key: string]: unknown;
+            };
+        };
         /** MessageCreate */
         MessageCreate: {
             /** Content */
@@ -921,6 +931,32 @@ export interface components {
             related_run_id?: string | null;
             /** Related Itinerary Id */
             related_itinerary_id?: string | null;
+        };
+        /** MessagePublic */
+        MessagePublic: {
+            /** Id */
+            id: string;
+            /** Conversation Id */
+            conversation_id: string;
+            /** User Id */
+            user_id: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "user" | "assistant" | "system";
+            /** Content */
+            content: string;
+            /** Artifacts */
+            artifacts?: components["schemas"]["ItineraryCollectionArtifact"][];
+            /** Sequence */
+            sequence: number;
+            /** Related Run Id */
+            related_run_id?: string | null;
+            /** Related Itinerary Id */
+            related_itinerary_id?: string | null;
+            /** Created At */
+            created_at: string;
         };
         /** MetadataRequest */
         MetadataRequest: {
@@ -939,37 +975,6 @@ export interface components {
             plan_id: string;
             /** Day */
             day: number;
-        };
-        /** PlanRequest */
-        PlanRequest: {
-            /** Query */
-            query: string;
-            /**
-             * Max Per Day
-             * @default 5
-             */
-            max_per_day: number;
-            /**
-             * Min Rating
-             * @default 4.5
-             */
-            min_rating: number;
-            /**
-             * Max Spots
-             * @default 30
-             */
-            max_spots: number;
-            /**
-             * Max Review Rounds
-             * @default 3
-             */
-            max_review_rounds: number;
-            /** Thread Id */
-            thread_id?: string | null;
-            /** Plan Id */
-            plan_id?: string | null;
-            /** Modification Notes */
-            modification_notes?: string | null;
         };
         /** RevertDayRequest */
         RevertDayRequest: {
@@ -1388,39 +1393,6 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["RevertDayRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    confirm_modification_api_plan_confirm_modification_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ConfirmModificationRequest"];
             };
         };
         responses: {
@@ -1864,7 +1836,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["MessagePublic"][];
                 };
             };
             /** @description Validation Error */
@@ -1901,7 +1873,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["MessageAccepted"];
                 };
             };
             /** @description Validation Error */
@@ -2528,39 +2500,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
-                };
-            };
-        };
-    };
-    create_plan_stream_api_plan_stream_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["PlanRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

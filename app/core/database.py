@@ -47,6 +47,7 @@ def init_db(path: str | Path | None = None) -> None:
                 end_date            TEXT,
                 plan_json           TEXT NOT NULL,
                 planner_state_json  TEXT,
+                lock_version        INTEGER NOT NULL DEFAULT 1 CHECK(lock_version >= 1),
                 created_at          TEXT NOT NULL
             );
 
@@ -59,11 +60,32 @@ def init_db(path: str | Path | None = None) -> None:
                 updated_at           TEXT NOT NULL
             );
 
-            CREATE TABLE IF NOT EXISTS pending_modifications (
-                id          TEXT PRIMARY KEY,
-                user_id     TEXT NOT NULL,
-                state_json  TEXT NOT NULL,
-                created_at  TEXT NOT NULL
+            CREATE TABLE IF NOT EXISTS itinerary_enrichments (
+                id                TEXT PRIMARY KEY,
+                itinerary_id      TEXT NOT NULL REFERENCES itineraries(id) ON DELETE CASCADE,
+                user_id           TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                kind              TEXT NOT NULL CHECK(kind IN ('restaurant','spot_tips')),
+                route_fingerprint TEXT NOT NULL,
+                payload_json      TEXT NOT NULL,
+                created_at        TEXT NOT NULL,
+                updated_at        TEXT NOT NULL,
+                UNIQUE(itinerary_id, kind, route_fingerprint)
+            );
+
+            CREATE TABLE IF NOT EXISTS optimizer_shadow_runs (
+                id                       TEXT PRIMARY KEY,
+                itinerary_id             TEXT NOT NULL REFERENCES itineraries(id) ON DELETE CASCADE,
+                user_id                  TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                profile_version          TEXT NOT NULL,
+                candidate_pool_fingerprint TEXT NOT NULL,
+                status                   TEXT NOT NULL CHECK(status IN ('running','succeeded','failed')),
+                result_json              TEXT,
+                error_text               TEXT,
+                first_user_edit_at       TEXT,
+                edited_route_fingerprint TEXT,
+                created_at               TEXT NOT NULL,
+                updated_at               TEXT NOT NULL,
+                UNIQUE(itinerary_id, profile_version, candidate_pool_fingerprint)
             );
 
             CREATE TABLE IF NOT EXISTS conversations (
@@ -83,6 +105,7 @@ def init_db(path: str | Path | None = None) -> None:
                 user_id              TEXT NOT NULL REFERENCES users(id),
                 role                 TEXT NOT NULL CHECK(role IN ('user', 'assistant', 'system')),
                 content              TEXT NOT NULL,
+                artifacts_json       TEXT NOT NULL DEFAULT '[]',
                 sequence             INTEGER NOT NULL,
                 related_run_id       TEXT,
                 related_itinerary_id TEXT,
@@ -113,7 +136,7 @@ def init_db(path: str | Path | None = None) -> None:
                 id                         TEXT PRIMARY KEY,
                 user_id                    TEXT NOT NULL REFERENCES users(id),
                 conversation_id            TEXT REFERENCES conversations(id) ON DELETE SET NULL,
-                kind                       TEXT NOT NULL CHECK(kind IN ('chat', 'travel_plan', 'revision')),
+                kind                       TEXT NOT NULL CHECK(kind IN ('chat', 'travel_plan', 'revision', 'spot_tips')),
                 status                     TEXT NOT NULL CHECK(status IN ('queued', 'running', 'waiting_user', 'succeeded', 'failed', 'cancelled')),
                 concurrency_key            TEXT NOT NULL,
                 request_snapshot_json      TEXT NOT NULL,
@@ -139,6 +162,15 @@ def init_db(path: str | Path | None = None) -> None:
                 durable     INTEGER NOT NULL DEFAULT 1,
                 created_at  TEXT NOT NULL,
                 UNIQUE(run_id, sequence)
+            );
+
+            CREATE TABLE IF NOT EXISTS run_interaction_responses (
+                run_id         TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+                interaction_id TEXT NOT NULL,
+                message_id     TEXT REFERENCES messages(id) ON DELETE SET NULL,
+                value_json     TEXT NOT NULL,
+                created_at     TEXT NOT NULL,
+                PRIMARY KEY(run_id, interaction_id)
             );
 
             CREATE TABLE IF NOT EXISTS user_memory_states (
@@ -225,12 +257,18 @@ def init_db(path: str | Path | None = None) -> None:
                 ON runs(conversation_id, created_at, id);
             CREATE INDEX IF NOT EXISTS idx_run_events_replay
                 ON run_events(run_id, sequence);
+            CREATE INDEX IF NOT EXISTS idx_run_interaction_message
+                ON run_interaction_responses(message_id);
             CREATE INDEX IF NOT EXISTS idx_memory_facts_owner_status
                 ON memory_facts(user_id,status,updated_at DESC);
             CREATE INDEX IF NOT EXISTS idx_memory_facts_scope
                 ON memory_facts(user_id,scope_type,normalized_value);
             CREATE INDEX IF NOT EXISTS idx_memory_jobs_claim
                 ON memory_extraction_jobs(status,next_attempt_at,created_at);
+            CREATE INDEX IF NOT EXISTS idx_itinerary_enrichments_route
+                ON itinerary_enrichments(itinerary_id,kind,route_fingerprint);
+            CREATE INDEX IF NOT EXISTS idx_optimizer_shadow_itinerary
+                ON optimizer_shadow_runs(itinerary_id,profile_version);
         """)
         # 对已有数据库做迁移保护
         try:
@@ -240,9 +278,11 @@ def init_db(path: str | Path | None = None) -> None:
         for statement in (
             "ALTER TABLE itineraries ADD COLUMN root_id TEXT",
             "ALTER TABLE itineraries ADD COLUMN version INTEGER NOT NULL DEFAULT 1",
+            "ALTER TABLE itineraries ADD COLUMN lock_version INTEGER NOT NULL DEFAULT 1",
             "ALTER TABLE conversations ADD COLUMN status TEXT NOT NULL DEFAULT 'active'",
             "ALTER TABLE conversations ADD COLUMN archived_at TEXT",
             "ALTER TABLE conversations ADD COLUMN last_viewed_at TEXT",
+            "ALTER TABLE messages ADD COLUMN artifacts_json TEXT NOT NULL DEFAULT '[]'",
             "ALTER TABLE planning_briefs ADD COLUMN memory_projection_json TEXT",
             "ALTER TABLE planning_briefs ADD COLUMN memory_match_status TEXT NOT NULL DEFAULT 'none'",
             "ALTER TABLE planning_briefs ADD COLUMN memory_match_error_code TEXT",
@@ -253,6 +293,7 @@ def init_db(path: str | Path | None = None) -> None:
                 conn.execute(statement)
             except sqlite3.OperationalError:
                 pass
+        _migrate_spot_tip_schema(conn)
         journal_mode = conn.execute("PRAGMA journal_mode=WAL").fetchone()[0]
         if str(journal_mode).lower() != "wal":
             raise RuntimeError("SQLite WAL mode could not be enabled")
@@ -260,11 +301,93 @@ def init_db(path: str | Path | None = None) -> None:
             "UPDATE conversations SET last_viewed_at=updated_at "
             "WHERE last_viewed_at IS NULL"
         )
-        conn.execute(
-            "DELETE FROM pending_modifications "
-            "WHERE julianday(created_at) < julianday('now', '-30 days')"
-        )
+        # The old revision-confirmation store was superseded by durable Run
+        # interactions and LangGraph checkpoints. Pending rows cannot be
+        # resumed safely through the current protocol.
+        conn.execute("DROP TABLE IF EXISTS pending_modifications")
         _migrate_legacy_profiles(conn)
+
+
+def _migrate_spot_tip_schema(conn: sqlite3.Connection) -> None:
+    """Extend SQLite CHECK constraints without discarding existing runtime data.
+
+    SQLite cannot alter a CHECK constraint in place.  Older installations used
+    closed value lists for both tables, so rebuild only those two tables when
+    their stored DDL has not yet learned about ``spot_tips``.
+    """
+    def table_sql(name: str) -> str:
+        row = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name=?", (name,)
+        ).fetchone()
+        return str(row["sql"] or "") if row else ""
+
+    runs_needs_upgrade = "spot_tips" not in table_sql("runs")
+    enrichments_needs_upgrade = "spot_tips" not in table_sql("itinerary_enrichments")
+    if not runs_needs_upgrade and not enrichments_needs_upgrade:
+        return
+
+    # These schema operations run before normal request processing.  Disable
+    # FK enforcement only while replacing the referenced table, then restore it.
+    conn.commit()
+    conn.execute("PRAGMA foreign_keys=OFF")
+    try:
+        if enrichments_needs_upgrade:
+            conn.executescript("""
+                CREATE TABLE itinerary_enrichments__new (
+                    id TEXT PRIMARY KEY,
+                    itinerary_id TEXT NOT NULL REFERENCES itineraries(id) ON DELETE CASCADE,
+                    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    kind TEXT NOT NULL CHECK(kind IN ('restaurant','spot_tips')),
+                    route_fingerprint TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    UNIQUE(itinerary_id, kind, route_fingerprint)
+                );
+                INSERT INTO itinerary_enrichments__new
+                    SELECT id,itinerary_id,user_id,kind,route_fingerprint,payload_json,created_at,updated_at
+                    FROM itinerary_enrichments;
+                DROP TABLE itinerary_enrichments;
+                ALTER TABLE itinerary_enrichments__new RENAME TO itinerary_enrichments;
+                CREATE INDEX IF NOT EXISTS idx_itinerary_enrichments_route
+                    ON itinerary_enrichments(itinerary_id,kind,route_fingerprint);
+            """)
+        if runs_needs_upgrade:
+            conn.executescript("""
+                CREATE TABLE runs__new (
+                    id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL REFERENCES users(id),
+                    conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL,
+                    kind TEXT NOT NULL CHECK(kind IN ('chat', 'travel_plan', 'revision', 'spot_tips')),
+                    status TEXT NOT NULL CHECK(status IN ('queued', 'running', 'waiting_user', 'succeeded', 'failed', 'cancelled')),
+                    concurrency_key TEXT NOT NULL,
+                    request_snapshot_json TEXT NOT NULL,
+                    disconnect_policy TEXT NOT NULL DEFAULT 'continue' CHECK(disconnect_policy IN ('continue', 'cancel')),
+                    retry_of_run_id TEXT REFERENCES runs(id),
+                    result_itinerary_id TEXT REFERENCES itineraries(id),
+                    error_public_json TEXT,
+                    error_internal TEXT,
+                    outstanding_interaction_id TEXT,
+                    created_at TEXT NOT NULL,
+                    queued_at TEXT NOT NULL,
+                    started_at TEXT,
+                    finished_at TEXT,
+                    updated_at TEXT NOT NULL
+                );
+                INSERT INTO runs__new
+                    SELECT id,user_id,conversation_id,kind,status,concurrency_key,request_snapshot_json,
+                           disconnect_policy,retry_of_run_id,result_itinerary_id,error_public_json,error_internal,
+                           outstanding_interaction_id,created_at,queued_at,started_at,finished_at,updated_at
+                    FROM runs;
+                DROP TABLE runs;
+                ALTER TABLE runs__new RENAME TO runs;
+                CREATE INDEX IF NOT EXISTS idx_runs_queue ON runs(status, queued_at, id);
+                CREATE INDEX IF NOT EXISTS idx_runs_owner_active ON runs(user_id, status, updated_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_runs_conversation ON runs(conversation_id, created_at, id);
+            """)
+    finally:
+        conn.commit()
+        conn.execute("PRAGMA foreign_keys=ON")
 
 
 def _memory_fingerprint(

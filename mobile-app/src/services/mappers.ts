@@ -33,6 +33,7 @@ export function adaptMessage(raw: Record<string, unknown>): ConversationMessage 
     id: text(raw.id), role: text(raw.role, 'assistant') as ConversationMessage['role'], content: text(raw.content),
     sequence: Number(raw.sequence ?? 0), relatedRunId: text(raw.related_run_id) || null,
     relatedItineraryId: text(raw.related_itinerary_id) || null, createdAt: text(raw.created_at),
+    artifacts: list(raw.artifacts) as ConversationMessage['artifacts'],
   };
 }
 

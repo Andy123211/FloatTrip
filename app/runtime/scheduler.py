@@ -14,6 +14,45 @@ from app.runtime.observability import metrics
 RunHandler = Callable[[dict[str, Any], asyncio.Event], Awaitable[dict[str, Any] | None]]
 
 
+def public_error_for_exception(exc: Exception) -> PublicError:
+    """Translate provider failures without exposing credentials or raw payloads."""
+    explicit_code = getattr(exc, "public_code", None)
+    explicit_message = getattr(exc, "public_message", None)
+    if explicit_code or explicit_message:
+        return PublicError(
+            code=str(explicit_code or "run_failed"),
+            message=str(explicit_message or "任务执行失败，请稍后重试"),
+            retryable=bool(getattr(exc, "public_retryable", True)),
+        )
+
+    status_code = getattr(exc, "status_code", None)
+    normalized = str(exc).casefold()
+    if status_code == 402 or "insufficient balance" in normalized:
+        return PublicError(
+            code="llm_balance_exhausted",
+            message="模型服务余额不足，请充值或切换可用模型后再试。",
+            retryable=False,
+        )
+    if status_code in {401, 403}:
+        return PublicError(
+            code="llm_authentication_failed",
+            message="模型服务认证失败，请检查 API Key 和模型权限。",
+            retryable=False,
+        )
+    if status_code == 429:
+        exhausted = "insufficient_quota" in normalized or "quota" in normalized
+        return PublicError(
+            code="llm_quota_exhausted" if exhausted else "llm_rate_limited",
+            message=(
+                "模型服务额度已用尽，请补充额度或切换可用模型后再试。"
+                if exhausted
+                else "模型服务当前请求过多，请稍后重试。"
+            ),
+            retryable=not exhausted,
+        )
+    return PublicError()
+
+
 class RuntimeScheduler:
     def __init__(
         self,
@@ -52,14 +91,19 @@ class RuntimeScheduler:
         interaction_id: str,
         value: Any,
     ) -> dict[str, Any]:
-        if run["status"] != RunStatus.WAITING_USER.value:
-            raise ValueError("run is not waiting for user input")
-        if run["outstanding_interaction_id"] != interaction_id:
-            raise ValueError("stale or mismatched interaction")
         handler = self._handlers.get(RunKind(run["kind"]))
         if not handler or not hasattr(handler, "resume"):
             raise ValueError("run handler does not support resume")
-        resumed = await self.manager.transition(run["id"], RunStatus.RUNNING)
+        resumed, accepted = await asyncio.to_thread(
+            self.manager.runs.accept_interaction,
+            run["user_id"], run["id"], interaction_id, value,
+        )
+        if not accepted:
+            return resumed
+        await self.manager.publish(
+            run["id"], "custom", {"kind": "run.status", "status": "running"},
+            durable=True,
+        )
         cancel_event = asyncio.Event()
         task = asyncio.create_task(
             self._resume_execute(resumed, cancel_event, handler, value),
@@ -130,7 +174,7 @@ class RuntimeScheduler:
         )
         user_capacity = (
             self._user_planning[run["user_id"]]
-            if kind in {RunKind.TRAVEL_PLAN, RunKind.REVISION}
+            if kind in {RunKind.TRAVEL_PLAN, RunKind.REVISION, RunKind.SPOT_TIPS}
             else _NullAsyncContext()
         )
         key_lock = self._key_locks[run["concurrency_key"]]
@@ -175,13 +219,7 @@ class RuntimeScheduler:
                 await self.manager.transition(
                     run["id"],
                     RunStatus.FAILED,
-                    error_public=PublicError(
-                        code=str(getattr(exc, "public_code", "run_failed")),
-                        message=str(
-                            getattr(exc, "public_message", "任务执行失败，请稍后重试")
-                        ),
-                        retryable=True,
-                    ).model_dump(),
+                    error_public=public_error_for_exception(exc).model_dump(),
                     error_internal=repr(exc),
                 )
                 metrics.run_finished(
@@ -201,7 +239,7 @@ class RuntimeScheduler:
         capacity = self.chat_capacity if kind is RunKind.CHAT else self.planning_capacity
         user_capacity = (
             self._user_planning[run["user_id"]]
-            if kind in {RunKind.TRAVEL_PLAN, RunKind.REVISION}
+            if kind in {RunKind.TRAVEL_PLAN, RunKind.REVISION, RunKind.SPOT_TIPS}
             else _NullAsyncContext()
         )
         try:
@@ -239,13 +277,7 @@ class RuntimeScheduler:
                 await self.manager.transition(
                     run["id"],
                     RunStatus.FAILED,
-                    error_public=PublicError(
-                        code=str(getattr(exc, "public_code", "run_failed")),
-                        message=str(
-                            getattr(exc, "public_message", "任务执行失败，请稍后重试")
-                        ),
-                        retryable=True,
-                    ).model_dump(),
+                    error_public=public_error_for_exception(exc).model_dump(),
                     error_internal=repr(exc),
                 )
                 metrics.run_finished(

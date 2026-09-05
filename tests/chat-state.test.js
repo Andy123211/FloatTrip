@@ -30,7 +30,44 @@ test("streams assistant deltas and reconciles the durable message", () => {
   assert.equal(state.messages["message-1"].created_at, "2026-07-23T10:00:01Z");
 });
 
-test("keeps a just-completed historical reply above the formal planning card", () => {
+test("restores itinerary artifacts on the durable assistant message", () => {
+  let state = ChatState.initialState();
+  const artifacts = [{
+    type: "itinerary_collection", title: "南京方案", match_kind: "exact",
+    items: [{ itinerary_id: "itinerary-1", destination: "南京", duration_days: 3 }],
+  }];
+  state = ChatState.applyEvent(state, "run-cards", {
+    kind: "custom", sequence: 2,
+    payload: {
+      kind: "chat.message.completed", message_id: "message-cards",
+      content: "找到了。", artifacts, sequence: 4,
+    },
+  });
+  assert.deepEqual(state.messages["message-cards"].artifacts, artifacts);
+  const reloaded = ChatState.upsertMessage(ChatState.initialState(), {
+    id: "message-cards", role: "assistant", content: "找到了。", artifacts,
+  });
+  assert.equal(reloaded.messages["message-cards"].artifacts[0].items[0].itinerary_id, "itinerary-1");
+});
+
+test("aggregates productized agent activity by tool call", () => {
+  let state = ChatState.initialState();
+  state.runs.chat = { id: "chat", kind: "chat", status: "running" };
+  for (const [sequence, suffix] of [[1, "started"], [0, "progress"], [2, "completed"]]) {
+    state = ChatState.applyEvent(state, "chat", {
+      kind: "custom", sequence,
+      payload: {
+        kind: `agent.activity.${suffix}`, activity_id: "tool:one",
+        activity_type: "itinerary_search", label: "正在查找保存的旅行方案",
+      },
+    });
+  }
+  assert.equal(Object.keys(state.agentActivities).length, 1);
+  assert.equal(state.agentActivities["tool:one"].status, "completed");
+  assert.equal(state.runs.chat.agent_activity.activity_type, "itinerary_search");
+});
+
+test("does not resurrect a legacy planning card beside a chat reply", () => {
   let state = ChatState.initialState();
   state = ChatState.applyEvent(state, "chat-run", {
     kind: "custom",
@@ -49,7 +86,7 @@ test("keeps a just-completed historical reply above the formal planning card", (
   };
   assert.deepEqual(
     ChatState.activityItems(state).map(item => item.key),
-    ["message:assistant-before-plan", "run:formal-plan"],
+    ["message:assistant-before-plan"],
   );
 });
 
@@ -117,7 +154,7 @@ test("stores planning briefs by id", () => {
   assert.equal(state.briefs["brief-a"].status, "ready");
 });
 
-test("keeps dynamic constraints and memory projection on planning brief events", () => {
+test("keeps explicit constraints but drops silent memory projections from brief events", () => {
   let state = ChatState.initialState();
   state = ChatState.applyEvent(state, "chat-run", {
     kind: "custom", sequence: 2,
@@ -138,15 +175,16 @@ test("keeps dynamic constraints and memory projection on planning brief events",
     },
   });
   const brief = state.briefs["brief-memory"];
-  assert.equal(brief.memory_context.applied_facts[0].fact_id, "f1");
-  assert.equal(brief.effective_constraints.length, 1);
+  assert.equal(brief.memory_context, undefined);
+  assert.equal(brief.effective_constraints, undefined);
+  assert.equal(brief.constraint_coverage, undefined);
   assert.deepEqual(ChatState.briefViewModel(brief).preferences, [
     ["本次预算", "5000 元"], ["旅行节奏 · 必须", "每天最多三个景点"],
   ]);
   assert.equal(ChatState.briefViewModel(brief).usesDefaults, false);
 });
 
-test("renders a persisted planning brief with explicit and long-term constraints after reload", () => {
+test("renders only the current conversation constraints when a raw brief contains memory", () => {
   const brief = {
     id: "brief-reloaded", status: "ready",
     data: {
@@ -168,11 +206,10 @@ test("renders a persisted planning brief with explicit and long-term constraints
   const view = ChatState.briefViewModel(brief);
   assert.deepEqual(view.preferences, [["餐饮 · 偏好", "吃火锅"]]);
   assert.equal(view.usesDefaults, false);
-  assert.equal(brief.memory_context.applied_facts[0].value_text, "不喜欢早起");
 });
 
-test("explains avoid memory as an exclusion instead of a destination preference", () => {
-  const avoid = ChatState.memoryFactPresentation({
+test("explains an explicit avoid constraint as an exclusion", () => {
+  const avoid = ChatState.constraintPresentation({
     category: "attraction_preference", value_text: "老门东", polarity: "avoid",
   });
   assert.deepEqual(avoid, {
@@ -203,7 +240,7 @@ test("shows a thinking item only while a chat run is awaiting its response", () 
   assert.deepEqual(ChatState.activityItems(state), []);
 });
 
-test("adds a planning run created from a chat decision without a reload", () => {
+test("ignores legacy child run creation events", () => {
   let state = ChatState.initialState();
   state = ChatState.applyEvent(state, "chat-run", {
     kind: "custom",
@@ -213,8 +250,16 @@ test("adds a planning run created from a chat decision without a reload", () => 
       run: { id: "plan-run", kind: "travel_plan", status: "queued", request_snapshot: { destination: "南京" } },
     },
   });
-  assert.equal(state.runs["plan-run"].status, "queued");
-  assert.equal(state.runs["plan-run"].request_snapshot.destination, "南京");
+  assert.equal(state.runs["plan-run"], undefined);
+});
+
+test("keeps background tip enrichment out of the conversation timeline", () => {
+  const state = ChatState.initialState();
+  state.runs["tips-run"] = {
+    id: "tips-run", kind: "spot_tips", status: "running",
+    created_at: "2026-07-23T10:00:00Z",
+  };
+  assert.deepEqual(ChatState.activityItems(state), []);
 });
 
 test("keeps a waiting interaction after the following status event", () => {
@@ -260,6 +305,37 @@ test("clears a waiting interaction when the run resumes", () => {
   assert.equal(state.runs["run-waiting"].pending_interaction, null);
 });
 
+test("planning failure removes streamed acknowledgement and stays a planning timeline", () => {
+  let state = ChatState.initialState();
+  state.runs.chat = { id: "chat", kind: "chat", status: "running" };
+  state = ChatState.applyEvent(state, "chat", {
+    kind: "messages", payload: { delta: "好的，马上规划。" },
+  });
+  state = ChatState.applyEvent(state, "chat", {
+    kind: "custom", sequence: 1,
+    payload: { kind: "planning_run.progress", stage: "optimizer", label: "正在编排行程" },
+  });
+  state = ChatState.applyEvent(state, "chat", {
+    kind: "custom", sequence: 2,
+    payload: { kind: "run.status", status: "failed" },
+  });
+  assert.equal(state.messages["assistant:chat"], undefined);
+  assert.deepEqual(ChatState.activityItems(state).map(item => item.key), ["run:chat"]);
+});
+
+test("submitting a brief removes its confirmation card immediately", () => {
+  let state = ChatState.initialState();
+  state.briefs.brief = { id: "brief", status: "ready", data: { destination: "上海" } };
+  state = ChatState.applyEvent(state, "chat", {
+    kind: "custom", sequence: 1,
+    payload: {
+      kind: "planning_brief.submitted", brief_id: "brief",
+      status: "submitted", summary: { destination: "上海" }, missing_fields: [],
+    },
+  });
+  assert.deepEqual(ChatState.activityItems(state), []);
+});
+
 test("labels submitted planning briefs accurately", () => {
   assert.equal(ChatState.planningBriefStatusLabel("collecting"), "信息收集中");
   assert.equal(ChatState.planningBriefStatusLabel("ready"), "等待确认");
@@ -300,7 +376,7 @@ test("only polls and marks a loaded conversation while the page is visible", () 
   assert.equal(ChatState.shouldMarkConversationViewed("visible", "", "conversation-1"), false);
 });
 
-test("projects messages, briefs, non-chat runs, and failed chat retries into one stable activity timeline", () => {
+test("projects messages, briefs, and failed chat retries without legacy child runs", () => {
   let state = ChatState.initialState();
   state = ChatState.upsertMessage(state, {
     id: "message-1", role: "user", content: "规划云南",
@@ -323,11 +399,11 @@ test("projects messages, briefs, non-chat runs, and failed chat retries into one
   };
   assert.deepEqual(
     ChatState.activityItems(state).map(item => item.key),
-    ["message:message-1", "brief:brief-1", "chat-failure:failed-chat-run", "run:plan-run"],
+    ["message:message-1", "brief:brief-1", "chat-failure:failed-chat-run"],
   );
 });
 
-test("keeps activity order stable after entity updates and reconstruction", () => {
+test("only promotes a ready brief into the activity timeline", () => {
   const build = () => {
     let state = ChatState.initialState();
     state = ChatState.upsertMessage(state, {
@@ -346,10 +422,11 @@ test("keeps activity order stable after entity updates and reconstruction", () =
     return state;
   };
   const before = build();
+  assert.deepEqual(ChatState.activityItems(before).map(item => item.key), ["message:m"]);
   before.briefs.b = { ...before.briefs.b, status: "ready", updated_at: "2026-07-23T10:10:00Z" };
   assert.deepEqual(
     ChatState.activityItems(before).map(item => item.key),
-    ChatState.activityItems(build()).map(item => item.key),
+    ["message:m", "brief:b"],
   );
 });
 
@@ -374,9 +451,9 @@ test("uses conversation sequence for live assistant messages without timestamps"
   );
 });
 
-test("maps internal planning loops to monotonic product stages", () => {
+test("maps internal task-tool progress onto the parent chat run", () => {
   let state = ChatState.initialState();
-  state.runs.r = { id: "r", kind: "travel_plan", status: "running" };
+  state.runs.r = { id: "r", kind: "chat", status: "running" };
   const progress = (sequence, stage) => {
     state = ChatState.applyEvent(state, "r", {
       kind: "custom", sequence,
@@ -398,7 +475,7 @@ test("maps internal planning loops to monotonic product stages", () => {
   assert.equal(state.runs.r.internal_stage, "meal_search");
 });
 
-test("keeps retry runs as independent associated activity items", () => {
+test("keeps legacy retry runs out of the activity timeline", () => {
   const state = ChatState.initialState();
   state.runs.failed = {
     id: "failed", kind: "travel_plan", status: "failed",
@@ -409,8 +486,7 @@ test("keeps retry runs as independent associated activity items", () => {
     retry_of_run_id: "failed", created_at: "2026-07-23T10:00:01Z",
   };
   const runs = ChatState.activityItems(state).filter(item => item.type === "run");
-  assert.equal(runs.length, 2);
-  assert.equal(runs[1].entity.retry_of_run_id, "failed");
+  assert.equal(runs.length, 0);
 });
 
 test("chooses safe structured controls with a text fallback", () => {
@@ -447,14 +523,4 @@ test("builds a ready brief summary with explicit defaults", () => {
   assert.equal(view.dateLabel, "2026-10-01 — 2026-10-05");
   assert.equal(view.usesDefaults, true);
   assert.deepEqual(view.preferences, [["餐饮", "清淡"]]);
-});
-
-test("describes every run terminal and non-terminal state with an action", () => {
-  for (const status of ["queued", "running", "waiting_user", "succeeded", "failed", "cancelled"]) {
-    assert.ok(ChatState.RUN_PRESENTATIONS[status].label);
-    assert.ok(ChatState.RUN_PRESENTATIONS[status].copy);
-    assert.ok(ChatState.RUN_PRESENTATIONS[status].primaryAction);
-  }
-  assert.equal(ChatState.RUN_PRESENTATIONS.waiting_user.primaryAction, "resume");
-  assert.equal(ChatState.RUN_PRESENTATIONS.failed.primaryAction, "retry");
 });

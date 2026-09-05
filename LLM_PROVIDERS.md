@@ -17,11 +17,19 @@ DEEPSEEK_API_KEY=sk_xxxxxxxxxxxx
 # DEEPSEEK_MODEL=deepseek-v4-flash  # 可选，默认值已设置
 # DEEPSEEK_BASE_URL=https://api.deepseek.com  # 可选：兼容服务地址
 # DEEPSEEK_HTTP_PROXY=http://127.0.0.1:7890  # 可选：仅 DeepSeek 请求走代理
+# MAIN_AGENT_MODEL=deepseek-v4-pro            # 可选：主 Agent，默认继承 DEEPSEEK_MODEL
+# MAIN_AGENT_REASONING_EFFORT=high            # high 或 max
+# PLANNING_AGENT_MODEL=deepseek-v4-pro        # 可选：规划 Agent，默认继承 DEEPSEEK_MODEL
+# PLANNING_AGENT_REASONING_EFFORT=high        # high 或 max
 ```
 
 **可用模型：**
 - `deepseek-v4-flash`（默认，快速）
 - `deepseek-v4-pro`（更强大）
+
+主 Agent 和规划 Agent 固定使用 DeepSeek thinking 模式。其他辅助任务仍按
+`LLM_PROVIDER` 和各自模型变量运行，不会无条件开启 thinking。thinking 模式不发送
+`temperature`，默认推理强度为 `high`，可分别调整为 `max`。
 
 **API 获取：**
 https://platform.deepseek.com
@@ -67,7 +75,7 @@ DOUBAO_API_KEY=your_endpoint_id
 - `build_chat_llm()` — 创建聊天客户端
 - `build_structured_llm()` — 创建结构化输出客户端
 
-在 `nodes.py`、`profile_updater.py` 等调用点，统一使用工厂函数，提供商自动切换。
+规划节点、对话 Agent 和记忆提取等调用点统一使用工厂函数，提供商自动切换。
 
 ---
 

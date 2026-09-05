@@ -12,6 +12,7 @@ class RunKind(StrEnum):
     CHAT = "chat"
     TRAVEL_PLAN = "travel_plan"
     REVISION = "revision"
+    SPOT_TIPS = "spot_tips"
 
 
 class RunStatus(StrEnum):
@@ -99,6 +100,7 @@ class WaitingUserEvent(BaseModel):
     kind: Literal["run.waiting_user"]
     interaction_id: str
     question: str
+    missing_fields: list[str] = Field(default_factory=list)
     input_schema: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -110,11 +112,40 @@ class ItineraryCreatedEvent(BaseModel):
     destination: str = ""
 
 
+class ItineraryTipStatusEvent(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["itinerary.tip_status_changed"]
+    itinerary_id: str
+    status: Literal["queued", "running", "succeeded", "failed", "cancelled"]
+
+
+class AgentActivityEvent(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal[
+        "agent.activity.started",
+        "agent.activity.progress",
+        "agent.activity.completed",
+        "agent.activity.failed",
+    ]
+    activity_id: str
+    activity_type: Literal[
+        "memory_lookup", "planning_context", "itinerary_search",
+        "itinerary_read", "brief_update", "planning_submit",
+        "revision_start", "run_control",
+    ]
+    label: str
+    stage: str | None = None
+    stats: dict[str, int | float | bool] = Field(default_factory=dict)
+
+
 CUSTOM_EVENT_TYPES = (
     PlanningBriefEvent
     | PlanningProgressEvent
     | WaitingUserEvent
     | ItineraryCreatedEvent
+    | ItineraryTipStatusEvent
+    | AgentActivityEvent
 )
 
 
@@ -143,6 +174,10 @@ def concurrency_key(
         if not itinerary_id:
             raise ValueError("revision runs require itinerary_id")
         return f"revision:{itinerary_id}"
+    if parsed is RunKind.SPOT_TIPS:
+        if not itinerary_id:
+            raise ValueError("spot tips runs require itinerary_id")
+        return f"spot-tips:{itinerary_id}"
     if not run_id:
         raise ValueError("travel plan runs require run_id")
     return f"plan:{run_id}"

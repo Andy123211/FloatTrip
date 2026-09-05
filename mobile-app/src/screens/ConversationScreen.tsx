@@ -49,7 +49,7 @@ export function ConversationScreen({navigation, route}: Props) {
   const understanding = chatRun?.status === 'queued' || chatRun?.status === 'running';
   const completed = planningRun?.status === 'succeeded' || Boolean(completedTripId);
 
-  const append = useCallback((role: ConversationMessage['role'], content: string) => setMessages(current => [...current, {id: `local-${Date.now()}-${current.length}`, role, content}]), []);
+  const append = useCallback((role: ConversationMessage['role'], content: string) => setMessages(current => [...current, {id: `local-${Date.now()}-${current.length}`, role, content, artifacts: []}]), []);
   const syncMessages = useCallback(async (id: string) => {
     if (!session) {return;}
     const rows = await api.getMessages(session.token, id);
@@ -91,7 +91,7 @@ export function ConversationScreen({navigation, route}: Props) {
   const handleChatEvent = useCallback((id: string, event: RunEvent) => {
     const eventKind = String(event.payload.kind ?? '');
     if (event.kind === 'custom' && eventKind === 'chat.message.completed') {
-      const message = adaptMessage({id: event.payload.message_id, role: 'assistant', content: event.payload.content, sequence: event.payload.sequence, created_at: event.payload.created_at});
+      const message = adaptMessage({id: event.payload.message_id, role: 'assistant', content: event.payload.content, artifacts: event.payload.artifacts, sequence: event.payload.sequence, created_at: event.payload.created_at});
       setMessages(current => mergeMessages(current.filter(item => !item.id.startsWith('local-assistant')), [message]));
     }
     if (event.kind === 'custom' && (eventKind === 'planning_brief.updated' || eventKind === 'planning_brief.ready' || eventKind === 'planning_brief.submitted')) {

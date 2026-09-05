@@ -18,3 +18,16 @@ test("rejects incomplete detail targets and closed authentication state", () => 
     { page: "detail", planId: "plan-1" },
   );
 });
+
+test("preserves itinerary and modification text through authentication", () => {
+  const target = NavigationState.revisionTarget("plan-1", "  第二天安排轻松一点  ");
+
+  assert.deepEqual(NavigationState.resolveAfterAuth(target), {
+    page: "chat",
+    mode: "revision",
+    itineraryId: "plan-1",
+    content: "第二天安排轻松一点",
+  });
+  assert.equal(NavigationState.revisionTarget("plan-1", "   "), null);
+  assert.equal(NavigationState.revisionTarget("", "调整行程"), null);
+});

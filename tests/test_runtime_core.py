@@ -8,7 +8,7 @@ from pathlib import Path
 from app.core.database import get_conn, init_db
 from app.runtime.manager import RunManager
 from app.runtime.models import RunKind, RunStatus
-from app.runtime.scheduler import RuntimeScheduler
+from app.runtime.scheduler import RuntimeScheduler, public_error_for_exception
 from app.runtime.stream import StreamBridge, StreamItem
 
 
@@ -51,6 +51,28 @@ class RuntimeCoreTests(unittest.IsolatedAsyncioTestCase):
             stored = self.manager.events.after(run["id"])
         self.assertEqual(item.sequence, 1)
         self.assertEqual(stored[0]["sequence"], 1)
+
+    def test_provider_balance_failure_is_actionable_and_not_retryable(self):
+        class ProviderError(RuntimeError):
+            status_code = 402
+
+        error = public_error_for_exception(
+            ProviderError("Insufficient Balance; provider payload must stay private")
+        )
+
+        self.assertEqual(error.code, "llm_balance_exhausted")
+        self.assertIn("余额不足", error.message)
+        self.assertNotIn("provider payload", error.message)
+        self.assertFalse(error.retryable)
+
+    def test_provider_rate_limit_remains_retryable(self):
+        class ProviderError(RuntimeError):
+            status_code = 429
+
+        error = public_error_for_exception(ProviderError("rate limit reached"))
+
+        self.assertEqual(error.code, "llm_rate_limited")
+        self.assertTrue(error.retryable)
 
     async def test_stream_deduplicates_cursor_and_emits_end(self):
         bridge = StreamBridge(retention=8, heartbeat_seconds=1)

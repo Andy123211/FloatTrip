@@ -35,11 +35,11 @@ Define immutable structured constraint snapshots and consistent category-aware c
 - **THEN** 结果可追溯到本次显式约束或冻结 fact ID 及其覆盖状态
 
 ### Requirement: 所有规划入口使用一致快照语义
-系统 SHALL 让 Conversation Run、独立兼容 Run 和旧修改流程使用同一约束构造器，同时保持独立规划页面隐藏。
+系统 SHALL 让 Conversation 创建的 Planning Run 与 Revision Run 使用同一约束构造器和冻结快照语义。
 
 #### Scenario: 修改已有行程
-- **WHEN** `/api/plan/stream` 修改一个存在来源 Run 的 itinerary
-- **THEN** 修改 Run 继承父 Run 的有效约束，并由本次修改意见覆盖
+- **WHEN** 绑定 itinerary 的 Conversation Message 创建 Revision Run
+- **THEN** Revision Run 继承父 Run 的有效约束，并由本次修改意见覆盖
 
 #### Scenario: 旧行程缺少来源快照
 - **WHEN** 修改的旧 itinerary 无法定位父 Run 约束

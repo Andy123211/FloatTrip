@@ -5,13 +5,14 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Header, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.core.auth import decode_token
+from app.chat.artifacts import ItineraryCollectionArtifact
 from app.core.database import get_conn
 from app.core.travel_memory import (
     ArchivedConversationError,
@@ -24,6 +25,7 @@ from app.runtime.container import chat_service, manager, scheduler
 from app.runtime.models import RunKind, RunStatus, TERMINAL_STATUSES
 from app.runtime.observability import metrics
 from app.runtime.repositories import (
+    ConversationRunActive,
     ConversationRepository,
     OwnedResourceNotFound,
     PlanningBriefRepository,
@@ -68,11 +70,30 @@ class MessageCreate(BaseModel):
     related_itinerary_id: str | None = None
 
 
+class MessagePublic(BaseModel):
+    id: str
+    conversation_id: str
+    user_id: str
+    role: Literal["user", "assistant", "system"]
+    content: str
+    artifacts: list[ItineraryCollectionArtifact] = Field(default_factory=list, max_length=5)
+    sequence: int
+    related_run_id: str | None = None
+    related_itinerary_id: str | None = None
+    created_at: str
+
+
+class MessageAccepted(BaseModel):
+    message: MessagePublic
+    run: dict[str, Any]
+
+
 class BriefPatch(BaseModel):
     destination: str | None = None
     start_date: str | None = None
     end_date: str | None = None
     days: int | None = Field(default=None, ge=1, le=30)
+    trip_focus: Literal["sights_first", "food_first", "balanced"] | None = None
     budget: str | None = None
     trip_budget: str | None = Field(default=None, max_length=500)
     attraction_preference: str | None = None
@@ -107,10 +128,14 @@ async def create_conversation(
 @router.get("/conversations")
 async def list_conversations(
     limit: int = Query(default=50, ge=1, le=100),
+    related_itinerary_id: str | None = Query(default=None, min_length=1),
     authorization: str | None = Header(default=None),
 ):
     return await asyncio.to_thread(
-        conversations.list, _owner(authorization), limit
+        conversations.list,
+        _owner(authorization),
+        limit,
+        related_itinerary_id,
     )
 
 
@@ -141,7 +166,10 @@ async def mark_conversation_viewed(
         raise _not_found(exc) from exc
 
 
-@router.get("/conversations/{conversation_id}/messages")
+@router.get(
+    "/conversations/{conversation_id}/messages",
+    response_model=list[MessagePublic],
+)
 async def get_messages(
     conversation_id: str,
     after_sequence: int = Query(default=0, ge=0),
@@ -160,7 +188,11 @@ async def get_messages(
         raise _not_found(exc) from exc
 
 
-@router.post("/conversations/{conversation_id}/messages", status_code=202)
+@router.post(
+    "/conversations/{conversation_id}/messages",
+    status_code=202,
+    response_model=MessageAccepted,
+)
 async def submit_message(
     conversation_id: str,
     body: MessageCreate,
@@ -178,6 +210,16 @@ async def submit_message(
         raise _not_found(exc) from exc
     except ArchivedConversationError as exc:
         raise HTTPException(status_code=409, detail="conversation_archived") from exc
+    except ConversationRunActive as exc:
+        active = exc.run
+        raise HTTPException(status_code=409, detail={
+            "code": "conversation_run_active",
+            "run": {
+                "id": active["id"], "kind": active["kind"],
+                "status": active["status"],
+                "interaction_id": active.get("outstanding_interaction_id"),
+            },
+        }) from exc
     except ValueError as exc:
         if str(exc) == "message_too_long":
             raise HTTPException(
@@ -307,6 +349,13 @@ async def submit_brief(
         brief, run = await chat_service.submit_brief(_owner(authorization), brief_id)
     except OwnedResourceNotFound as exc:
         raise _not_found(exc) from exc
+    except ConversationRunActive as exc:
+        active = exc.run
+        raise HTTPException(status_code=409, detail={
+            "code": "conversation_run_active",
+            "run": {"id": active["id"], "kind": active["kind"], "status": active["status"],
+                    "interaction_id": active.get("outstanding_interaction_id")},
+        }) from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     scheduler.notify()
@@ -405,7 +454,15 @@ async def create_run(
             request_snapshot=request_snapshot,
             conversation_id=body.conversation_id,
             itinerary_id=body.related_itinerary_id,
+            enforce_conversation_idle=True,
         )
+    except ConversationRunActive as exc:
+        active = exc.run
+        raise HTTPException(status_code=409, detail={
+            "code": "conversation_run_active",
+            "run": {"id": active["id"], "kind": active["kind"], "status": active["status"],
+                    "interaction_id": active.get("outstanding_interaction_id")},
+        }) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     scheduler.notify()
@@ -463,6 +520,13 @@ async def retry_run(
         )
     except OwnedResourceNotFound as exc:
         raise _not_found(exc) from exc
+    except ConversationRunActive as exc:
+        active = exc.run
+        raise HTTPException(status_code=409, detail={
+            "code": "conversation_run_active",
+            "run": {"id": active["id"], "kind": active["kind"], "status": active["status"],
+                    "interaction_id": active.get("outstanding_interaction_id")},
+        }) from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     scheduler.notify()

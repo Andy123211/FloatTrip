@@ -1,0 +1,10 @@
+{
+  "name": "floattrip-xiaohongshu-hyperframes",
+  "private": true,
+  "scripts": {
+    "export:stills": "node scripts/export-stills.cjs",
+    "inspect:layout": "node scripts/inspect-layout.cjs",
+    "audit:timeline": "node scripts/audit-timeline.cjs",
+    "check:contrast": "node scripts/check-contrast.cjs"
+  }
+}

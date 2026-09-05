@@ -8,12 +8,12 @@ understanding and business-state changes.
 from __future__ import annotations
 
 import asyncio
-from datetime import date
+from datetime import date, timedelta
 from typing import TYPE_CHECKING, Any
 
 from app.chat.models import DialogueDecision, PlanningBriefPatch
 from app.core.planning_brief import required_brief_fields
-from app.runtime.models import RunKind, RunStatus
+from app.runtime.models import RunStatus
 from app.runtime.repositories import OwnedResourceNotFound
 
 if TYPE_CHECKING:
@@ -30,6 +30,7 @@ class DialogueActionExecutor:
         """Apply a decision with no text inference or model-controlled state bypass."""
         reply = decision.clarification.question if decision.clarification else decision.reply
         result: dict[str, Any] = {}
+        task_completed = False
 
         if decision.intent in {"create_plan", "update_brief"}:
             brief, error = await self._apply_brief(run, decision)
@@ -38,23 +39,39 @@ class DialogueActionExecutor:
             elif brief:
                 result["brief_id"] = brief["id"]
         elif decision.intent == "confirm_plan":
-            submitted, error = await self._confirm_plan(run)
-            if error:
-                reply = error
-            elif submitted:
-                brief, planning_run = submitted
-                result.update(
-                    brief_id=brief["id"],
-                    created_run_id=planning_run["id"],
-                )
-                await self._publish_created_run(run, planning_run)
+            brief = await asyncio.to_thread(
+                self.service.briefs.active_for_conversation,
+                run["user_id"], run["conversation_id"],
+            )
+            if not brief:
+                reply = "目前没有可确认的旅行需求。"
+            else:
+                missing = required_brief_fields(brief["data"])
+                if missing:
+                    reply = "旅行需求还不完整，请继续补充。"
+                else:
+                    submitted, itinerary_id = await self.service.execute_planner_tool(
+                        run, brief["id"]
+                    )
+                    result.update(
+                        brief_id=submitted["id"], result_itinerary_id=itinerary_id,
+                    )
+                    task_completed = True
         elif decision.intent == "modify_itinerary":
-            revision, error = await self._create_revision(run, decision)
+            itinerary_id, error = await self._resolve_itinerary(run, decision)
             if error:
                 reply = error
-            elif revision:
-                result["created_run_id"] = revision["id"]
-                await self._publish_created_run(run, revision)
+            elif not decision.modification_notes:
+                reply = "我还不清楚要如何调整这份行程，请补充具体改动。"
+            else:
+                result_id, concern = await self.service.execute_revision_tool(
+                    run, itinerary_id, decision.modification_notes
+                )
+                if concern:
+                    reply = str(concern.get("question") or "请补充这次修改的必要信息。")
+                elif result_id:
+                    result["result_itinerary_id"] = result_id
+                    task_completed = True
         elif decision.intent == "run_control":
             controlled, error = await self._control_run(run, decision)
             if error:
@@ -62,24 +79,35 @@ class DialogueActionExecutor:
             elif controlled:
                 result["controlled_run_id"] = controlled["id"]
 
-        await self.service.publish_assistant_message(run, reply)
+        if not task_completed:
+            await self.service.publish_assistant_message(run, reply)
         return result
 
-    async def _publish_created_run(
-        self, chat_run: dict[str, Any], created_run: dict[str, Any]
-    ) -> None:
-        """Expose a durable, public run projection to the active conversation.
-
-        The run is created from a Chat Run, so its card must arrive over that
-        same stream; otherwise it would be invisible until the user reloads.
-        """
-        await self.service.manager.publish(
-            chat_run["id"],
-            "custom",
-            {"kind": "run.created", "run": created_run},
-            durable=True,
-            validate_custom=False,
+    async def apply_brief_patch(
+        self, run: dict[str, Any], patch: dict[str, Any]
+    ) -> tuple[dict[str, Any] | None, str | None]:
+        """Shared deterministic entry point for the ReAct tool path."""
+        try:
+            parsed = PlanningBriefPatch.model_validate(patch)
+        except Exception:
+            return None, "旅行需求字段不符合要求，请检查日期、天数和约束。"
+        decision = DialogueDecision(
+            intent="update_brief", reply="已更新旅行需求。", brief_patch=parsed
         )
+        return await self._apply_brief(run, decision)
+
+    async def control_run(
+        self, run: dict[str, Any], run_id: str, action: str
+    ) -> tuple[dict[str, Any] | None, str | None]:
+        if action not in {"cancel", "retry"}:
+            return None, "只支持停止或重试任务。"
+        decision = DialogueDecision(
+            intent="run_control",
+            reply="任务状态已更新。",
+            target={"run_id": run_id},
+            run_action=action,
+        )
+        return await self._control_run(run, decision)
 
     async def _apply_brief(
         self, run: dict[str, Any], decision: DialogueDecision
@@ -130,106 +158,13 @@ class DialogueActionExecutor:
         # Action-only fields never enter durable brief data.  Supplying the
         # complete canonical brief also makes list replacement deterministic.
         durable_fields = {
-            "destination", "start_date", "end_date", "days", "budget",
+            "destination", "start_date", "end_date", "days", "trip_focus", "budget",
             "trip_budget", "attraction_preference", "food_preference",
             "habit_preference", "trip_constraints", "excluded_memory_fact_ids",
         }
         patch = {key: value for key, value in combined.items() if key in durable_fields}
         brief = await self.service.apply_brief_patch(run, patch)
         return brief, None
-
-    async def _confirm_plan(
-        self, run: dict[str, Any]
-    ) -> tuple[tuple[dict[str, Any], dict[str, Any]] | None, str | None]:
-        brief = await asyncio.to_thread(
-            self.service.briefs.active_for_conversation,
-            run["user_id"],
-            run["conversation_id"],
-        )
-        if not brief:
-            brief = await asyncio.to_thread(
-                self.service.briefs.latest_for_conversation,
-                run["user_id"],
-                run["conversation_id"],
-            )
-        if not brief:
-            return None, "目前没有可确认的旅行需求。"
-        if brief["status"] == "submitted" and brief.get("submitted_run_id"):
-            return (
-                brief,
-                await asyncio.to_thread(
-                    self.service.runs.get, run["user_id"], brief["submitted_run_id"]
-                ),
-            ), None
-        missing = required_brief_fields(brief["data"])
-        if brief["status"] != "ready" or missing:
-            labels = {
-                "destination": "目的地",
-                "start_date": "开始日期",
-                "end_date": "结束日期",
-                "date_range": "有效日期范围",
-            }
-            needed = "、".join(labels.get(item, item) for item in missing)
-            return None, f"还需要补充：{needed or '完整旅行信息'}。"
-        submitted, planning_run = await self.service.submit_brief(
-            run["user_id"], brief["id"]
-        )
-        await self.service.manager.publish(
-            run["id"],
-            "custom",
-            {
-                "kind": "planning_brief.submitted",
-                "brief_id": submitted["id"],
-                "status": submitted["status"],
-                "summary": submitted["data"],
-                "missing_fields": submitted["missing_fields"],
-            },
-            durable=True,
-        )
-        return (submitted, planning_run), None
-
-    async def _create_revision(
-        self, run: dict[str, Any], decision: DialogueDecision
-    ) -> tuple[dict[str, Any] | None, str | None]:
-        itinerary_id, error = await self._resolve_itinerary(run, decision)
-        if error:
-            return None, error
-        if not decision.modification_notes:
-            return None, "我还不清楚要如何调整这份行程，请补充具体改动。"
-        try:
-            summary = await asyncio.to_thread(
-                self.service._owned_itinerary_summary, run["user_id"], itinerary_id
-            )
-        except OwnedResourceNotFound:
-            return None, "这份行程不可用，请重新选择要修改的行程。"
-        modifiable = await asyncio.to_thread(
-            self.service._itinerary_is_modifiable, run["user_id"], itinerary_id
-        )
-        if not modifiable:
-            return None, "这份行程缺少可修改的规划记录，暂时不能在原行程上调整。"
-        memory = await asyncio.to_thread(
-            self.service.memory_context.memories.get,
-            run["user_id"],
-            run["conversation_id"],
-        )
-        created = await asyncio.to_thread(
-            self.service.manager.create,
-            user_id=run["user_id"],
-            kind=RunKind.REVISION,
-            conversation_id=run["conversation_id"],
-            itinerary_id=itinerary_id,
-            request_snapshot={
-                "modification_notes": decision.modification_notes,
-                "parent_plan_id": itinerary_id,
-                "related_itinerary_id": itinerary_id,
-                "related_run_id": decision.target.run_id
-                or run["request_snapshot"].get("related_run_id"),
-                "destination": summary.get("destination"),
-                "memory_profile_revision": memory["profile_revision"],
-                "memory_profile_snapshot": memory["profile_snapshot"],
-            },
-        )
-        return created, None
 
     async def _control_run(
         self, run: dict[str, Any], decision: DialogueDecision
@@ -343,5 +278,13 @@ class DialogueActionExecutor:
     def _normalize_days(self, data: dict[str, Any]) -> None:
         start = self._parse_date(data.get("start_date"))
         end = self._parse_date(data.get("end_date"))
+        days = data.get("days")
+        # A start date plus a duration is a complete calendar range.  This is
+        # deliberately deterministic so a missed optional tool argument from
+        # the dialogue model cannot leave an otherwise unambiguous Brief in
+        # the "collecting" state.
+        if start and end is None and isinstance(days, int) and days >= 1:
+            data["end_date"] = (start + timedelta(days=days - 1)).isoformat()
+            return
         if start and end:
             data["days"] = (end - start).days + 1

@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 # ─── LLM 结构化输出 Schema ────────────────────────────────────
@@ -148,11 +148,118 @@ class DayMealPick(BaseModel):
     dinner_reason: str = Field(default="", description="晚餐推荐/降级理由")
 
 
+# ─── Deterministic attraction optimizer contracts ───────────
+
+MealScene = Literal["none", "lunch", "dinner", "either"]
+MealCoverage = Literal["lunch", "dinner"]
+SemanticSource = Literal["rule", "llm"]
+PreferredPeriod = Literal["any", "morning", "afternoon", "evening"]
+
+
+class CandidateAttraction(BaseModel):
+    """LLM travel semantics linked back to one authoritative Amap POI."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    poi_name: str = Field(min_length=1)
+    duration_min: int = Field(default=120, ge=30, le=360)
+    preference_match: float = Field(default=0.5, ge=0, le=1)
+    representativeness: float = Field(default=0.5, ge=0, le=1)
+    preferred_period: PreferredPeriod = "any"
+    meal_scene: MealScene = "none"
+    semantic_tags: list[str] = Field(default_factory=list, max_length=16)
+    evidence_constraint_ids: list[str] = Field(default_factory=list, max_length=32)
+
+    @field_validator("poi_name")
+    @classmethod
+    def _strip_name(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("poi_name must not be blank")
+        return value
+
+    @field_validator("semantic_tags", "evidence_constraint_ids")
+    @classmethod
+    def _unique_strings(cls, value: list[str]) -> list[str]:
+        return list(dict.fromkeys(item.strip() for item in value if item.strip()))
+
+
+class CandidatePoolProposal(BaseModel):
+    """Structured output produced by the LLM candidate builder."""
+
+    model_config = ConfigDict(extra="forbid")
+    candidates: list[CandidateAttraction] = Field(min_length=1, max_length=24)
+
+
+class OptimizerCandidate(CandidateAttraction):
+    """Server-enriched candidate; all fields below come from authoritative data."""
+
+    model_config = ConfigDict(extra="forbid")
+    poi_id: str | None = None
+    rating: float | None = Field(default=None, ge=0, le=5)
+    open_time: str | None = None
+    location: dict[str, float]
+    poi_type: str = ""
+    typecode: str = ""
+    category: str = "other"
+    cluster_id: int | None = None
+    semantic_source: SemanticSource = "llm"
+    semantic_evidence: list[str] = Field(default_factory=list)
+    must_visit: bool = False
+    fixed_day: int | None = Field(default=None, ge=1)
+    fixed_start_min: int | None = Field(default=None, ge=0, le=1439)
+    must_be_first: bool = False
+    must_be_last: bool = False
+    before_poi_names: list[str] = Field(default_factory=list)
+
+
+class SolverDiagnostics(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    status: Literal["OPTIMAL", "FEASIBLE", "FALLBACK", "INFEASIBLE", "UNKNOWN"]
+    objective: float | None = None
+    best_bound: float | None = None
+    gap: float | None = Field(default=None, ge=0)
+    elapsed_ms: int = Field(ge=0)
+    scoring_profile: str
+    random_seed: int
+    relaxed_constraints: list[str] = Field(default_factory=list)
+    fallback_used: bool = False
+
+
+class ScoreBreakdownItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    component: str
+    raw_value: float
+    weight: float
+    contribution: float
+    explanation: str = ""
+
+
+class QualityViolation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    code: str
+    message: str
+    day: int | None = None
+    poi_name: str | None = None
+
+
+class QualityReport(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    passed: bool
+    violations: list[QualityViolation] = Field(default_factory=list)
+    recomputed_objective: float | None = None
+    solver_objective_delta: float | None = None
+    daily_order_ratios: dict[int, float] = Field(default_factory=dict)
+
+
 # ─── LangGraph 状态 ───────────────────────────────────────────
 
 class TravelPlanState(BaseModel):
     # 输入（仅 query 必填）
     query: str
+    # Confirmed by the conversation agent when the PlanningBrief is submitted.
+    # This is the source of truth for formal planning, not a second intent pass.
+    planning_instruction: Optional[str] = None
 
     # 意图识别抽取
     destination: Optional[str] = None
@@ -165,6 +272,7 @@ class TravelPlanState(BaseModel):
     effective_constraints: list[dict[str, Any]] = Field(default_factory=list)
     constraint_coverage: list[dict[str, Any]] = Field(default_factory=list)
     days: int = 0
+    trip_focus: Literal["sights_first", "food_first", "balanced"] | None = None
     missing_fields: list[str] = Field(default_factory=list)
 
     # 配置
@@ -176,6 +284,22 @@ class TravelPlanState(BaseModel):
 
     # 高德景点搜索
     pois: list[dict[str, Any]] = Field(default_factory=list)
+
+    # LLM candidate semantics + deterministic optimizer state.  These fields
+    # are checkpointed so a run remains reproducible after profile evolution.
+    candidate_pool: list[dict[str, Any]] = Field(default_factory=list)
+    candidate_pool_fingerprint: str | None = None
+    candidate_semantics_version: str = "rule-v1+llm-v1"
+    candidate_pool_frozen: bool = False
+    candidate_builder_warnings: list[str] = Field(default_factory=list)
+    candidate_repair_round: int = 0
+    max_candidate_repair_rounds: int = 1
+    candidate_repair_feedback: list[dict[str, Any]] = Field(default_factory=list)
+    scoring_profile_version: str = "balanced-v1"
+    solver_diagnostics: dict[str, Any] | None = None
+    score_breakdown: list[dict[str, Any]] = Field(default_factory=list)
+    quality_report: dict[str, Any] | None = None
+    core_attractions_only: bool = False
 
     # Planner / Reviewer 循环
     route: list[dict[str, Any]] = Field(default_factory=list)
@@ -245,17 +369,8 @@ class SpotTipItem(BaseModel):
 
 
 class SpotTipsResult(BaseModel):
-    """Spot Tips Agent 的输出。
+    """Spot Tips Agent 的直接结构化输出。"""
 
-    字段顺序即生成顺序：先 reasoning 逐景点结合天气与属性分析，再输出 tips 结论。
-    """
-
-    reasoning: str = Field(
-        description=(
-            "逐景点的简要分析：当天天气如何、景点是室内还是户外/是否爬山/有无特殊游玩常识，"
-            "据此决定要提醒什么。每个景点 1-2 句即可。"
-        )
-    )
     tips: list[SpotTipItem] = Field(
         default_factory=list,
         description="每个景点一条贴士，覆盖输入行程中的全部景点，名称逐字一致",
@@ -280,17 +395,3 @@ class RewrittenQuery(BaseModel):
         description="游玩习惯/节奏摘要（冲突解析后）。同上规则；无偏好则为 null",
     )
     rewritten_query: str = Field(description="融入以上冲突解析后偏好改写的旅行查询；若无相关画像则原样返回")
-
-
-# ─── Profile Update Agent Schema ──────────────────────────────
-
-class ProfileUpdateResult(BaseModel):
-    """Profile Update Agent 的冲突解析输出（不含 visited_destinations，由代码维护）。
-
-    CoT 顺序：change_log 必须排在三个列表之前——先写明计划的每条变更，
-    再输出落实了这些变更的完整列表。曾出现 change_log 声称新增但列表没加的"只说不做"问题。
-    """
-    change_log: list[str] = Field(default_factory=list, description="每条变更说明（先写这里，下面的列表必须落实这些变更）")
-    attraction_prefs: list[str] = Field(default_factory=list, description="景点偏好完整列表（含 change_log 中的变更），最多 20 条")
-    food_prefs: list[str] = Field(default_factory=list, description="餐饮偏好完整列表（含 change_log 中的变更），最多 20 条")
-    habit_prefs: list[str] = Field(default_factory=list, description="游玩习惯/节奏完整列表（含 change_log 中的变更），最多 20 条")

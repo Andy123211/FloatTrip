@@ -16,7 +16,7 @@ from app.runtime.models import (
     TERMINAL_STATUSES,
     concurrency_key,
 )
-from app.runtime.repositories import RunEventRepository, RunRepository
+from app.runtime.repositories import ConversationRunActive, RunEventRepository, RunRepository
 from app.runtime.stream import StreamBridge, StreamItem
 
 
@@ -43,6 +43,7 @@ class RunManager:
         itinerary_id: str | None = None,
         retry_of_run_id: str | None = None,
         disconnect_policy: DisconnectPolicy | str = DisconnectPolicy.CONTINUE,
+        enforce_conversation_idle: bool = False,
     ) -> dict[str, Any]:
         run_id = str(uuid.uuid4())
         key = concurrency_key(
@@ -52,6 +53,17 @@ class RunManager:
             itinerary_id=itinerary_id,
         )
         with get_conn(self.db_path) as conn:
+            if enforce_conversation_idle and conversation_id and RunKind(kind) is not RunKind.SPOT_TIPS:
+                conn.execute("BEGIN IMMEDIATE")
+                active = conn.execute(
+                    "SELECT * FROM runs WHERE conversation_id=? AND user_id=? "
+                    "AND kind IN ('chat','travel_plan','revision') "
+                    "AND status IN ('queued','running','waiting_user') "
+                    "ORDER BY created_at DESC,id DESC LIMIT 1",
+                    (conversation_id, user_id),
+                ).fetchone()
+                if active:
+                    raise ConversationRunActive(dict(active))
             run = self.runs.insert(
                 conn,
                 run_id=run_id,
@@ -72,11 +84,11 @@ class RunManager:
             RunStatus.CANCELLED,
         }:
             raise ValueError("only failed or cancelled runs can be retried")
-        itinerary_id = (
-            original["request_snapshot"].get("related_itinerary_id")
-            if original["kind"] == RunKind.REVISION.value
-            else None
-        )
+        itinerary_id = None
+        if original["kind"] == RunKind.REVISION.value:
+            itinerary_id = original["request_snapshot"].get("related_itinerary_id")
+        elif original["kind"] == RunKind.SPOT_TIPS.value:
+            itinerary_id = original["request_snapshot"].get("itinerary_id")
         return self.create(
             user_id=user_id,
             kind=original["kind"],
@@ -85,6 +97,7 @@ class RunManager:
             itinerary_id=itinerary_id,
             retry_of_run_id=run_id,
             disconnect_policy=original["disconnect_policy"],
+            enforce_conversation_idle=True,
         )
 
     async def publish(
@@ -105,6 +118,12 @@ class RunManager:
         item = StreamItem(run_id, kind, payload, sequence, durable)
         await self.bridge.publish(item)
         return item
+
+    async def publish_itinerary(self, itinerary_id: str, payload: dict[str, Any]) -> None:
+        """Live-only detail-page notification; durable state remains in SQLite."""
+        await self.bridge.publish(StreamItem(
+            f"itinerary:{itinerary_id}", "custom", payload, durable=False
+        ))
 
     async def transition(
         self,

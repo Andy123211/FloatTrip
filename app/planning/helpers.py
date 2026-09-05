@@ -9,6 +9,7 @@ import re
 import asyncio
 import time
 from datetime import date, timedelta
+from itertools import zip_longest
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -148,15 +149,28 @@ def clean_pref(v: str | None) -> str | None:
 
 def fetch_city_spots(city: str, api_key: str, *, max_spots: int = 30) -> list[dict[str, Any]]:
     """多关键词搜索 + 去重，返回最多 max_spots 个有坐标的候选景点。"""
-    keywords_list = [f"{city}必去景点", f"{city}热门景区", f"{city}博物馆"]
+    queries = [
+        (f"{city}必去景点", None), (f"{city}热门景区", None), (f"{city}博物馆", None),
+        (f"{city}小吃街", ""), (f"{city}夜市", ""),
+    ]
+    pages: list[list[dict[str, Any]]] = []
+    for kw, types in queries:
+        kwargs = {"types": types} if types is not None else {}
+        pages.append(search_attraction_pois(city, api_key, keywords=kw, **kwargs))
+    return _round_robin_spots(pages, max_spots)
+
+
+def _round_robin_spots(
+    pages: list[list[dict[str, Any]]], max_spots: int
+) -> list[dict[str, Any]]:
+    """Prevent any query family (especially food streets) from being starved."""
     seen: set[str] = set()
     spots: list[dict[str, Any]] = []
-    for kw in keywords_list:
-        if len(spots) >= max_spots:
-            break
-        for raw in search_attraction_pois(city, api_key, keywords=kw):
-            if len(spots) >= max_spots:
-                break
+    sentinel = object()
+    for row in zip_longest(*pages, fillvalue=sentinel):
+        for raw in row:
+            if raw is sentinel:
+                continue
             name = raw.get("name", "")
             if name in seen:
                 continue
@@ -164,33 +178,28 @@ def fetch_city_spots(city: str, api_key: str, *, max_spots: int = 30) -> list[di
             if spot:
                 seen.add(name)
                 spots.append(spot)
+                if len(spots) >= max_spots:
+                    return spots
     return spots
 
 
 async def fetch_city_spots_async(
     city: str, api_key: str, *, max_spots: int = 30
 ) -> list[dict[str, Any]]:
-    keywords_list = [f"{city}必去景点", f"{city}热门景区", f"{city}博物馆"]
+    queries = [
+        (f"{city}必去景点", None), (f"{city}热门景区", None), (f"{city}博物馆", None),
+        (f"{city}小吃街", ""), (f"{city}夜市", ""),
+    ]
     pages = await asyncio.gather(
         *(
-            search_attraction_pois_async(city, api_key, keywords=keyword)
-            for keyword in keywords_list
+            search_attraction_pois_async(
+                city, api_key, keywords=keyword,
+                **({"types": types} if types is not None else {}),
+            )
+            for keyword, types in queries
         )
     )
-    seen: set[str] = set()
-    spots: list[dict[str, Any]] = []
-    for raw_items in pages:
-        for raw in raw_items:
-            if len(spots) >= max_spots:
-                return spots
-            name = raw.get("name", "")
-            if name in seen:
-                continue
-            spot = poi_to_spot(raw)
-            if spot:
-                seen.add(name)
-                spots.append(spot)
-    return spots
+    return _round_robin_spots(list(pages), max_spots)
 
 
 def filter_by_rating(

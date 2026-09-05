@@ -263,6 +263,35 @@ class TestSaveTimeline:
             reloaded = load_itinerary(pid, conn)["plan"]
         assert reloaded["days"][0]["timeline"] == saved
 
+    def test_旧版本不能覆盖较新的行程编辑(self, client):
+        from app.core.database import get_conn
+        from app.core.memory import load_itinerary, update_plan_json
+
+        uid, _ = make_auth()
+        pid = make_plan(uid)
+        with get_conn() as conn:
+            first_read = load_itinerary(pid, conn)
+        with get_conn() as conn:
+            stale_read = load_itinerary(pid, conn)
+
+        first_read["plan"]["hotel"] = "新酒店"
+        with get_conn() as conn:
+            assert update_plan_json(
+                pid, uid, first_read["plan"], conn,
+                expected_lock_version=first_read["lock_version"],
+            )
+
+        stale_read["plan"]["notes"] = "不应覆盖"
+        with get_conn() as conn:
+            assert not update_plan_json(
+                pid, uid, stale_read["plan"], conn,
+                expected_lock_version=stale_read["lock_version"],
+            )
+            current = load_itinerary(pid, conn)
+        assert current["plan"]["hotel"] == "新酒店"
+        assert "notes" not in current["plan"]
+        assert current["lock_version"] == 2
+
     def test_残缺location不致500(self, client):
         uid, headers = make_auth()
         pid = make_plan(uid)

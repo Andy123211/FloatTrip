@@ -6,6 +6,7 @@
     messageOrder: [],
     briefs: {},
     runs: {},
+    agentActivities: {},
     cursors: {},
   });
 
@@ -17,9 +18,13 @@
   ];
 
   const INTERNAL_STAGE_MAP = {
+    weather_lookup: "understand",
     intent: "understand",
     query_rewrite: "understand",
     attraction_search: "discover",
+    candidate_builder: "discover",
+    optimizer: "compose",
+    quality_gate: "compose",
     planner: "compose",
     reviewer: "compose",
     time_check: "compose",
@@ -29,49 +34,20 @@
     finalize: "polish",
   };
   const JOURNEY_STAGE_INDEX = {
+    weather_lookup: 0,
     intent: 0,
-    query_rewrite: 1,
-    attraction_search: 2,
-    planner: 3,
+    query_rewrite: 0,
+    attraction_search: 1,
+    candidate_builder: 1,
+    optimizer: 2,
+    quality_gate: 2,
+    planner: 2,
     reviewer: 3,
     time_check: 4,
     meal_search: 5,
     meal_recommend: 5,
-    spot_tips: 6,
-    finalize: 6,
-  };
-
-  const RUN_PRESENTATIONS = {
-    queued: {
-      label: "等待开始",
-      copy: "任务已经保存，会在资源可用时自动开始。",
-      primaryAction: "cancel",
-    },
-    running: {
-      label: "正在规划",
-      copy: "你可以继续聊天或离开页面，规划会在后台继续。",
-      primaryAction: "cancel",
-    },
-    waiting_user: {
-      label: "需要你的回复",
-      copy: "规划暂时停在这里，收到你的回答后会从原处继续。",
-      primaryAction: "resume",
-    },
-    succeeded: {
-      label: "行程已经准备好",
-      copy: "我已经把路线、时间和旅行细节整理成一份完整行程。",
-      primaryAction: "open",
-    },
-    failed: {
-      label: "这次没有完成",
-      copy: "原始需求仍然保留，可以直接再试一次。",
-      primaryAction: "retry",
-    },
-    cancelled: {
-      label: "规划已停止",
-      copy: "任务已经停止，原始需求仍然保留。",
-      primaryAction: "retry",
-    },
+    spot_tips: 5,
+    finalize: 5,
   };
 
   function planningBriefStatusLabel(status) {
@@ -114,10 +90,14 @@
   }
 
   function upsertMessage(state, message) {
+    const normalized = {
+      ...message,
+      artifacts: Array.isArray(message.artifacts) ? message.artifacts.slice(0, 5) : [],
+    };
     const exists = !!state.messages[message.id];
     return {
       ...state,
-      messages: { ...state.messages, [message.id]: { ...state.messages[message.id], ...message } },
+      messages: { ...state.messages, [message.id]: { ...state.messages[message.id], ...normalized } },
       messageOrder: exists
         ? state.messageOrder
         : [...state.messageOrder, message.id].sort((a, b) => {
@@ -143,7 +123,7 @@
     return "text";
   }
 
-  function memoryFactPresentation(fact) {
+  function constraintPresentation(fact) {
     const contextOnly = fact?.application_level === "context_only";
     const polarity = contextOnly ? "fact" : (fact?.polarity || "fact");
     return {
@@ -185,7 +165,7 @@
       accessibility_need: "无障碍", other_travel_preference: "其他",
     };
     const preferences = (data.trip_constraints || []).map(item => {
-      const presentation = memoryFactPresentation(item);
+      const presentation = constraintPresentation(item);
       return [
         `${categoryLabels[item.category] || "旅行要求"} · ${presentation.summaryLabel}`,
         item.value_text,
@@ -203,8 +183,7 @@
         : data.days ? `${data.days} 天 · 日期待定` : "日期待补充",
       preferences,
       usesDefaults: brief?.status === "ready"
-        && !(data.trip_constraints || []).length
-        && !(brief?.memory_context?.applied_facts || []).length,
+        && !(data.trip_constraints || []).length,
       missing: (brief?.missing_fields || []).map(field => missingLabels[field] || field),
     };
   }
@@ -250,7 +229,9 @@
       });
     });
     Object.values(state.briefs).forEach((entity) => {
-      if (!entity || entity.status === "discarded") return;
+      // Collecting requirements are handled conversationally.  Only a ready
+      // brief gets a compact, actionable confirmation surface in the feed.
+      if (!entity || entity.status !== "ready") return;
       items.push({
         key: `brief:${entity.id}`,
         type: "brief",
@@ -262,19 +243,53 @@
     });
     Object.values(state.runs).forEach((entity) => {
       if (!entity) return;
+      // Tips enrich an already created itinerary in the background.  They are
+      // intentionally silent in the conversation and never get their own
+      // progress card or timeline entry.
+      if (entity.kind === "spot_tips") return;
       if (entity.kind === "chat") {
         if (["queued", "running"].includes(entity.status)) {
           items.push({
-            key: `chat-thinking:${entity.id}`,
-            type: "chat_thinking",
+            key: entity.journey_step_index !== undefined ? `run:${entity.id}` : `chat-thinking:${entity.id}`,
+            type: entity.journey_step_index !== undefined ? "run" : "chat_thinking",
             entityId: entity.id,
             entity,
-            createdAt: entity.created_at || entity.queued_at || entity.updated_at || "",
+            createdAt: entity.activity_at || entity.updated_at || entity.created_at || entity.queued_at || "",
+            sequence: Number.MAX_SAFE_INTEGER,
+          });
+          return;
+        }
+        if (entity.status === "waiting_user") {
+          items.push({
+            key: `run:${entity.id}`,
+            type: "run",
+            entityId: entity.id,
+            entity,
+            createdAt: entity.activity_at || entity.updated_at || entity.created_at || entity.queued_at || "",
+            sequence: Number.MAX_SAFE_INTEGER,
+          });
+          return;
+        }
+        if (entity.status === "succeeded" && entity.result_itinerary_id) {
+          items.push({
+            key: `run:${entity.id}`, type: "run", entityId: entity.id, entity,
+            createdAt: entity.activity_at || entity.updated_at || entity.created_at || "",
             sequence: Number.MAX_SAFE_INTEGER,
           });
           return;
         }
         if (entity.status !== "failed") return;
+        if (entity.journey_step_index !== undefined) {
+          items.push({
+            key: `run:${entity.id}`,
+            type: "run",
+            entityId: entity.id,
+            entity,
+            createdAt: entity.activity_at || entity.updated_at || entity.created_at || "",
+            sequence: Number.MAX_SAFE_INTEGER,
+          });
+          return;
+        }
         items.push({
           key: `chat-failure:${entity.id}`,
           type: "chat_failure",
@@ -285,17 +300,16 @@
         });
         return;
       }
-      items.push({
-        key: `run:${entity.id}`,
-        type: "run",
-        entityId: entity.id,
-        entity,
-        createdAt: entity.created_at || entity.queued_at || entity.updated_at || "",
-        sequence: Number.MAX_SAFE_INTEGER,
-      });
+      // Planner and Revision are internal task tools of the Chat Run.  Ignore
+      // legacy child runs so old persisted data cannot resurrect card UI.
+      return;
     });
     const typePriority = { message: 0, chat_thinking: 1, brief: 2, run: 3, chat_failure: 4 };
     return items.sort((left, right) => {
+      if (left.type === "run" && right.type === "message"
+          && right.entity.role === "assistant" && right.entity.related_run_id === left.entity.id) return -1;
+      if (right.type === "run" && left.type === "message"
+          && left.entity.role === "assistant" && left.entity.related_run_id === right.entity.id) return 1;
       if (left.type === "message" && right.type === "message" && left.sequence !== right.sequence) {
         return left.sequence - right.sequence;
       }
@@ -341,11 +355,30 @@
           id: payload.message_id,
           role: "assistant",
           content: payload.content,
+          artifacts: payload.artifacts || [],
           sequence: payload.sequence,
           created_at: payload.created_at,
           related_run_id: runId,
+          related_itinerary_id: payload.related_itinerary_id || null,
           streaming: false,
         });
+      } else if (String(payload.kind || "").startsWith("agent.activity.")) {
+        const activityId = payload.activity_id;
+        if (activityId) {
+          const status = payload.kind.split(".").pop();
+          const activity = {
+            ...next.agentActivities[activityId], ...payload,
+            id: activityId, run_id: runId, status,
+          };
+          next = {
+            ...next,
+            agentActivities: { ...next.agentActivities, [activityId]: activity },
+            runs: {
+              ...next.runs,
+              [runId]: { ...next.runs[runId], agent_activity: activity },
+            },
+          };
+        }
       } else if (String(payload.kind || "").startsWith("planning_brief.")) {
         next = {
           ...next,
@@ -357,21 +390,12 @@
               status: payload.status,
               data: payload.summary || {},
               missing_fields: payload.missing_fields || [],
-              memory_context: payload.memory_context || next.briefs[payload.brief_id]?.memory_context,
-              effective_constraints: payload.effective_constraints || [],
-              constraint_coverage: payload.constraint_coverage || [],
             },
           },
         };
-      } else if (payload.kind === "run.created" && payload.run?.id) {
-        const created = payload.run;
-        next = {
-          ...next,
-          runs: {
-            ...next.runs,
-            [created.id]: { ...next.runs[created.id], ...created },
-          },
-        };
+      } else if (payload.kind === "run.created") {
+        // Kept as a no-op for backward-compatible event streams. New planner
+        // and revision work is emitted as internal progress on this Chat Run.
       } else {
         const currentRun = next.runs[runId] || {};
         let pendingInteraction = currentRun.pending_interaction;
@@ -405,11 +429,25 @@
               ...stagedRun,
               ...itineraryResult,
               ...(payload.kind === "run.status" ? { status: payload.status } : {}),
+              ...(["run.waiting_user", "run.status"].includes(payload.kind)
+                ? { activity_at: event.created_at || new Date().toISOString() } : {}),
               pending_interaction: pendingInteraction,
               last_event: payload,
             },
           },
         };
+        if (payload.kind === "run.status" && ["failed", "cancelled"].includes(payload.status)) {
+          const tempId = `assistant:${runId}`;
+          if (next.messages[tempId]) {
+            const messages = { ...next.messages };
+            delete messages[tempId];
+            next = {
+              ...next,
+              messages,
+              messageOrder: next.messageOrder.filter(id => id !== tempId),
+            };
+          }
+        }
       }
     } else if (event.kind === "end") {
       next = {
@@ -431,9 +469,8 @@
     advanceRunStage,
     productStageFor,
     interactionInputKind,
-    memoryFactPresentation,
+    constraintPresentation,
     briefViewModel,
-    RUN_PRESENTATIONS,
     PRODUCT_STAGES,
     planningBriefStatusLabel,
     conversationAttention,

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 from datetime import date, timedelta
 from typing import Annotated, Any
 
@@ -29,7 +30,14 @@ def _constraints_block(
 
 from app.llm.factory import build_structured_llm
 from app.providers.amap.poi import search_around_pois, search_around_pois_async
+from app.planning.candidate_builder import build_authoritative_candidates, candidate_pool_fingerprint
+from app.planning.optimizer import (
+    AttractionSubsetOptimizer,
+    OptimizationFailure,
+    daily_bounds_from_constraints,
+)
 from app.planning.schemas import (
+    CandidatePoolProposal,
     DayMealPick,
     IntentExtraction,
     RewrittenQuery,
@@ -40,6 +48,7 @@ from app.planning.schemas import (
     TravelPlanState,
     TravelRoute,
 )
+from app.planning.semantics import has_food_focus, infer_meal_scene, is_featured_food_street
 from app.planning.helpers import (
     amap_key,
     clean_pref,
@@ -61,6 +70,7 @@ from app.planning.helpers import (
     unknown_spots,
 )
 from app.planning.prompts import (
+    CANDIDATE_BUILDER_SYSTEM,
     INTENT_SYSTEM,
     MEAL_SYSTEM,
     PLANNER_SYSTEM,
@@ -73,11 +83,39 @@ from app.planning.prompts import (
 from langgraph.graph import END
 
 
+def _build_planning_llm(schema, model_name: str | None, *, temperature: float = 0):
+    """All planning-agent LLM calls use DeepSeek thinking mode explicitly."""
+    return build_structured_llm(
+        schema,
+        provider="deepseek",
+        model=model_name or os.getenv("PLANNING_AGENT_MODEL") or None,
+        temperature=temperature,
+        thinking=True,
+        reasoning_effort=os.getenv("PLANNING_AGENT_REASONING_EFFORT", "high"),
+    )
+
+
+def _build_spot_tips_llm(model_name: str | None):
+    """Tips are lightweight enrichment, so use one direct structured call."""
+    return build_structured_llm(
+        SpotTipsResult,
+        provider="deepseek",
+        model=(
+            model_name
+            or os.getenv("PLANNING_SPOT_TIPS_MODEL")
+            or os.getenv("PLANNING_AGENT_MODEL")
+            or None
+        ),
+        temperature=0,
+        thinking=False,
+    )
+
+
 # ─── Query Rewrite Agent ─────────────────────────────────────
 
 def make_query_rewrite_node(model_name: str | None, profile_hint: str = ""):
     """Rewrite from the immutable profile hint carried by the planning Run."""
-    rewrite_llm = build_structured_llm(RewrittenQuery, model=model_name, temperature=0)
+    rewrite_llm = _build_planning_llm(RewrittenQuery, model_name, temperature=0)
 
     async def query_rewrite(state: TravelPlanState) -> dict[str, Any]:
         raw = state.query
@@ -115,7 +153,7 @@ def make_query_rewrite_node(model_name: str | None, profile_hint: str = ""):
 # ─── 意图识别 ────────────────────────────────────────────────
 
 def make_intent_node(model_name: str | None, profile_hint: str = ""):
-    llm = build_structured_llm(IntentExtraction, model=model_name, temperature=0)
+    llm = _build_planning_llm(IntentExtraction, model_name, temperature=0)
 
     async def intent(state: TravelPlanState) -> dict[str, Any]:
         today = date.today()
@@ -194,6 +232,26 @@ def route_after_intent(state: TravelPlanState) -> str:
     return END if state.missing_fields else "query_rewrite"
 
 
+async def weather_lookup_node(state: TravelPlanState) -> dict[str, Any]:
+    """Fetch weather from the already-confirmed PlanningBrief without an LLM."""
+    if not (state.destination and state.travel_start_date and state.travel_end_date):
+        raise ValueError("formal planning requires a confirmed destination and date range")
+    forecast, weather_note = await fetch_weather_for_dates_async(
+        state.destination,
+        state.travel_start_date,
+        state.travel_end_date,
+        amap_key(),
+    )
+    return {
+        "weather_forecast": forecast,
+        "weather_note": weather_note,
+        "history": state.history + [
+            f"brief 已确认：{state.destination}，{state.travel_start_date}~{state.travel_end_date}（{state.days}天）；"
+            f"天气预报={len(forecast)}天"
+        ],
+    }
+
+
 # ─── 高德景点搜索 ─────────────────────────────────────────────
 
 async def attraction_search_node(state: TravelPlanState) -> dict[str, Any]:
@@ -202,8 +260,163 @@ async def attraction_search_node(state: TravelPlanState) -> dict[str, Any]:
         state.destination or "", api_key, max_spots=state.max_spots
     )
     kept, _ = filter_by_rating(spots, state.min_rating)
-    note = f"高德景点搜索：抓取 {len(spots)} 个，rating≥{state.min_rating} 保留 {len(kept)} 个"
+    # Food streets/night markets are meal destinations by default.  They only
+    # become ordinary attraction candidates when the user explicitly makes
+    # eating the trip focus; otherwise retain a single well-rated city feature.
+    requirement_text = "\n".join(
+        str(item.get("value_text") or "")
+        for item in state.effective_constraints
+        if item.get("polarity") == "require"
+    )
+    retained_names = {spot["name"] for spot in kept}
+    food_focused = has_food_focus(state.effective_constraints, state.food_preference)
+    for spot in spots:
+        if (
+            (infer_meal_scene(spot).meal_scene != "none" and (food_focused or is_featured_food_street(spot)))
+            or (spot.get("name") and spot["name"] in requirement_text)
+        ) and spot["name"] not in retained_names:
+            kept.append(spot)
+            retained_names.add(spot["name"])
+    note = f"高德景点搜索：抓取 {len(spots)} 个，评分/用餐场景/必去规则保留 {len(kept)} 个"
     return {"pois": kept, "history": state.history + [note]}
+
+
+# ─── Candidate Builder + deterministic optimization ─────────
+
+def make_candidate_builder_node(model_name: str | None):
+    # Candidate scoring is bounded classification over server-owned POIs, not
+    # open-ended itinerary reasoning.  Keep it to one non-thinking structured
+    # request so it cannot incur the Think → formatter double round-trip.
+    llm = build_structured_llm(
+        CandidatePoolProposal,
+        provider="deepseek",
+        model=(
+            os.getenv("PLANNING_CANDIDATE_MODEL")
+            or model_name
+            or os.getenv("PLANNING_AGENT_MODEL")
+            or None
+        ),
+        temperature=0,
+    )
+
+    async def candidate_builder(state: TravelPlanState) -> dict[str, Any]:
+        cluster_map = cluster_pois_by_location(state.pois, max(1, state.days))
+        candidate_text = format_spots_for_llm(state.pois, cluster_map)
+        feedback = ""
+        if state.candidate_repair_feedback:
+            feedback = (
+                "\n\n上次确定性求解/质量校验失败，仅修正候选语义，不要输出路线：\n"
+                + json.dumps(state.candidate_repair_feedback, ensure_ascii=False)
+            )
+        prompt = (
+            f"主 Agent 已确认的本次旅行需求（必须整体考虑，不能重新解释或忽略）：\n"
+            f"{state.planning_instruction or state.query}\n\n"
+            f"目的地：{state.destination}\n旅行天数：{state.days}\n"
+            f"结构化约束（其中 require/avoid 必须遵守）：\n{_constraints_block(state)}\n\n"
+            f"权威 POI 候选（只能逐字复制名称）：\n{candidate_text}"
+            f"{feedback}"
+        )
+        proposals = []
+        warnings = list(state.candidate_builder_warnings)
+        try:
+            result: CandidatePoolProposal = await asyncio.wait_for(
+                ainvoke_structured(
+                    llm, [("system", CANDIDATE_BUILDER_SYSTEM), ("human", prompt)]
+                ),
+                timeout=float(os.getenv("PLANNING_CANDIDATE_TIMEOUT_SECONDS", "45")),
+            )
+            proposals = result.candidates
+        except Exception as exc:
+            warnings.append(f"LLM_CANDIDATE_BUILDER_FAILED:{type(exc).__name__}")
+        candidates, link_warnings = build_authoritative_candidates(
+            proposals,
+            state.pois,
+            days=state.days,
+            constraints=state.effective_constraints,
+            attraction_preference=state.attraction_preference,
+            food_focused=has_food_focus(state.effective_constraints, state.food_preference),
+        )
+        note = f"candidate_builder：冻结前候选 {len(candidates)} 个，语义警告 {len(link_warnings)} 条"
+        return {
+            "candidate_pool": [candidate.model_dump() for candidate in candidates],
+            "candidate_pool_fingerprint": candidate_pool_fingerprint(candidates),
+            "candidate_builder_warnings": warnings + link_warnings,
+            "quality_report": None,
+            "history": state.history + [note],
+        }
+
+    return candidate_builder
+
+
+async def optimize_attractions_node(state: TravelPlanState) -> dict[str, Any]:
+    optimizer = AttractionSubsetOptimizer(state.scoring_profile_version)
+    weather_by_day = {
+        index + 1: weather
+        for index, weather in enumerate(state.weather_forecast or [])
+    }
+    user_daily_min, user_daily_max = daily_bounds_from_constraints(state.effective_constraints)
+    try:
+        result = await asyncio.to_thread(
+            optimizer.solve,
+            state.candidate_pool,
+            days=state.days,
+            habit_preference=state.habit_preference,
+            max_per_day=state.max_per_day,
+            weather_by_day=weather_by_day,
+            travel_start_date=state.travel_start_date,
+            user_daily_min=user_daily_min,
+            user_daily_max=user_daily_max,
+        )
+    except OptimizationFailure as exc:
+        report = {
+            "passed": False,
+            "violations": [{"code": "NO_FEASIBLE_SOLUTION", "message": str(exc), "day": None, "poi_name": None}],
+            "recomputed_objective": None,
+            "solver_objective_delta": None,
+            "daily_order_ratios": {},
+        }
+        return {
+            "route": [],
+            "quality_report": report,
+            "solver_diagnostics": None,
+            "history": state.history + [f"optimizer：{exc}"],
+        }
+    return {
+        "route": result.route,
+        "solver_diagnostics": result.diagnostics.model_dump(),
+        "score_breakdown": result.score_breakdown,
+        "quality_report": result.quality_report.model_dump(),
+        "candidate_pool_frozen": True,
+        "core_attractions_only": True,
+        "approved": result.quality_report.passed,
+        "history": state.history + [
+            f"optimizer：{result.diagnostics.status}，objective={result.diagnostics.objective}，"
+            f"quality={'PASS' if result.quality_report.passed else 'FAIL'}"
+        ],
+    }
+
+
+class PlanningQualityError(RuntimeError):
+    pass
+
+
+def quality_gate_node(state: TravelPlanState) -> dict[str, Any]:
+    report = state.quality_report or {"passed": False, "violations": []}
+    if report.get("passed"):
+        return {"approved": True}
+    if state.candidate_repair_round < state.max_candidate_repair_rounds:
+        return {
+            "candidate_repair_round": state.candidate_repair_round + 1,
+            "candidate_repair_feedback": list(report.get("violations") or []),
+            "candidate_pool_frozen": False,
+            "history": state.history + ["quality_gate：失败，触发唯一一次 Candidate Repair"],
+        }
+    codes = ",".join(str(item.get("code") or "UNKNOWN") for item in report.get("violations") or [])
+    raise PlanningQualityError(f"itinerary rejected after candidate repair: {codes}")
+
+
+def route_after_quality_gate(state: TravelPlanState) -> str:
+    return "finalize" if (state.quality_report or {}).get("passed") else "candidate_builder"
 
 
 # ─── Planner ─────────────────────────────────────────────────
@@ -225,7 +438,7 @@ def _travel_dates_block(state: TravelPlanState) -> str:
 
 
 def make_planner_node(model_name: str | None):
-    llm = build_structured_llm(TravelRoute, model=model_name, temperature=0.3)
+    llm = _build_planning_llm(TravelRoute, model_name, temperature=0.3)
 
     async def planner(state: TravelPlanState) -> dict[str, Any]:
         # ① 上一轮景点集合（用于 spot diff，检测"notes 说改但 JSON 未变"）
@@ -347,7 +560,7 @@ def make_planner_node(model_name: str | None):
 # ─── Reviewer ────────────────────────────────────────────────
 
 def make_reviewer_node(model_name: str | None):
-    llm = build_structured_llm(RouteReview, model=model_name, temperature=0)
+    llm = _build_planning_llm(RouteReview, model_name, temperature=0)
 
     async def reviewer(state: TravelPlanState) -> dict[str, Any]:
         bad_unknown = unknown_spots(state.route, state.pois)
@@ -474,7 +687,7 @@ def make_time_check_node(model_name: str | None):
     职责单一——只判断每个景点的 start_time/end_time 是否符合开放时间和闭馆日；
     其他维度（地理、习惯、天气、合法性）一概不管。
     """
-    llm = build_structured_llm(TimeCheckResult, model=model_name, temperature=0)
+    llm = _build_planning_llm(TimeCheckResult, model_name, temperature=0)
 
     async def time_check(state: TravelPlanState) -> dict[str, Any]:
         rnd = state.time_check_round + 1
@@ -604,7 +817,7 @@ async def meal_search_node(state: TravelPlanState) -> dict[str, Any]:
 # ─── 餐厅推荐 ────────────────────────────────────────────────
 
 def make_meal_recommend_node(model_name: str | None):
-    llm = build_structured_llm(SingleDayMealPick, model=model_name, temperature=0)
+    llm = _build_planning_llm(SingleDayMealPick, model_name, temperature=0)
 
     async def meal_recommend(state: TravelPlanState) -> dict[str, Any]:
 
@@ -722,7 +935,7 @@ def make_spot_tips_node(model_name: str | None):
 
     非关键路径：LLM 失败时降级为无贴士，不阻塞行程生成。
     """
-    llm = build_structured_llm(SpotTipsResult, model=model_name, temperature=0)
+    llm = _build_spot_tips_llm(model_name)
 
     async def spot_tips_node(state: TravelPlanState) -> dict[str, Any]:
         spot_names: list[str] = []
@@ -750,11 +963,20 @@ def make_spot_tips_node(model_name: str | None):
             f"逐天天气预报：\n{weather_text}"
         )
         try:
-            result: SpotTipsResult = await ainvoke_structured(
-                llm, [("system", SPOT_TIPS_SYSTEM), ("human", prompt)]
+            result: SpotTipsResult = await asyncio.wait_for(
+                ainvoke_structured(
+                    llm, [("system", SPOT_TIPS_SYSTEM), ("human", prompt)]
+                ),
+                timeout=float(os.getenv("PLANNING_SPOT_TIPS_TIMEOUT_SECONDS", "30")),
             )
-        except RuntimeError:
-            return {"history": state.history + ["spot_tips：贴士生成失败，已跳过"]}
+        except Exception as exc:
+            # Tips are enrichment only: provider failures and timeouts must
+            # never hold the validated itinerary hostage.
+            return {
+                "history": state.history + [
+                    f"spot_tips：贴士生成失败，已跳过（{type(exc).__name__}）"
+                ]
+            }
 
         # 名称匹配：先精确，再子串宽松兜底（LLM 偶发轻微改写名称）
         valid = set(spot_names)
@@ -789,7 +1011,12 @@ def finalize_node(state: TravelPlanState) -> dict[str, Any]:
 
 
 def _finalize_impl(state: TravelPlanState) -> dict[str, Any]:
-    """组装 final_plan：逐天时刻表 + 午晚餐 + 图片url + haversine 距离。"""
+    """Assemble the immutable core itinerary.
+
+    New optimizer runs contain attraction items only.  Legacy revision runs
+    retain their historical meal projection because Revision Graph migration is
+    intentionally outside this change.
+    """
     spot_info    = {s["name"]: s for s in state.pois}
     meals_by_day = {m["day"]: m for m in state.meals}
 
@@ -825,14 +1052,17 @@ def _finalize_impl(state: TravelPlanState) -> dict[str, Any]:
                 "address": info.get("address"),
                 "tel": info.get("tel"),
                 "cost": info.get("cost"),
+                "meal_scene": spot.get("meal_scene", info.get("meal_scene", "none")),
+                "meal_coverage": spot.get("meal_coverage"),
+                "semantic_source": spot.get("semantic_source", info.get("semantic_source")),
             })
-            if spot.get("name") == morning_anchor_name and not lunch_inserted:
+            if not state.core_attractions_only and spot.get("name") == morning_anchor_name and not lunch_inserted:
                 lunch_inserted = True
                 if meal.get("lunch"):
                     timeline.append({"type": "lunch", **meal["lunch"]})
                 else:
                     timeline.append({"type": "lunch", "name": None, "no_restaurant": True})
-            if spot.get("name") == afternoon_anchor_name and not dinner_inserted:
+            if not state.core_attractions_only and spot.get("name") == afternoon_anchor_name and not dinner_inserted:
                 dinner_inserted = True
                 if meal.get("dinner"):
                     timeline.append({"type": "dinner", **meal["dinner"]})
@@ -850,6 +1080,7 @@ def _finalize_impl(state: TravelPlanState) -> dict[str, Any]:
 
     final_plan = {
         "query": state.query,
+        "planning_instruction": state.planning_instruction,
         "destination": state.destination,
         "start_date": state.travel_start_date.isoformat() if state.travel_start_date else None,
         "end_date": state.travel_end_date.isoformat() if state.travel_end_date else None,
@@ -876,12 +1107,18 @@ def _finalize_impl(state: TravelPlanState) -> dict[str, Any]:
         # 它要么被 planner 修完（time_violations 清空），要么属于极端兜底情况（达轮数上限未清完），
         # 不是给用户的常规提醒。
         "route_issues": list(state.reviewer_issues or []),
+        "scoring_profile": state.scoring_profile_version if state.core_attractions_only else None,
+        "candidate_semantics_version": state.candidate_semantics_version if state.core_attractions_only else None,
+        "candidate_pool_fingerprint": state.candidate_pool_fingerprint,
+        "solver_diagnostics": state.solver_diagnostics,
+        "score_breakdown": state.score_breakdown,
+        "quality_report": state.quality_report,
         "days": days_out,
     }
     placed_names = {s["name"] for day_r in state.route for s in day_r.get("spots", [])}
     candidate_spots = [
         {k: v for k, v in s.items()
-         if k in ("name", "rating", "photo", "location", "open_time", "address")}
+         if k in ("name", "rating", "photo", "location", "open_time", "address", "type", "typecode")}
         for s in state.pois
         if s.get("name") and s["name"] not in placed_names
     ][:20]

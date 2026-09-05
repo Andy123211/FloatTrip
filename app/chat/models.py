@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -29,6 +29,7 @@ class PlanningBriefPatch(_StrictModel):
     start_date: str | None = None
     end_date: str | None = None
     days: int | None = Field(default=None, ge=1, le=30)
+    trip_focus: Literal["sights_first", "food_first", "balanced"] | None = None
     budget: str | None = None
     trip_budget: str | None = None
     attraction_preference: str | None = None
@@ -105,3 +106,22 @@ class DialogueUnderstandingError(RuntimeError):
             self.public_message = message
         if code:
             self.public_code = code
+
+
+class MainAgentContext(_StrictModel):
+    """Server-injected scope for tools; never part of a tool's public schema."""
+
+    user_id: str
+    conversation_id: str
+    chat_run_id: str
+    memory_revision: int = Field(ge=0)
+    current_message: str
+    related_run_id: str | None = None
+    related_itinerary_id: str | None = None
+
+
+class AgentToolResult(_StrictModel):
+    ok: bool
+    code: str = "ok"
+    message: str = ""
+    data: dict[str, Any] = Field(default_factory=dict)

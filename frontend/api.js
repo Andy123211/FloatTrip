@@ -74,71 +74,6 @@ async function checkAuth() {
   } catch { return null; }
 }
 
-/* ── Planning SSE ─────────────────────────────────── */
-async function streamPlan(body, callbacks, url = "/api/plan/stream") {
-  const { onStage, onResult, onMissingFields, onWarning, onError, onAbort } = callbacks;
-  const ctrl = new AbortController();
-  if (onAbort) onAbort(() => ctrl.abort());
-
-  try {
-    const r = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...authHeaders() },
-      body: JSON.stringify(body),
-      signal: ctrl.signal,
-    });
-    if (!r.ok) {
-      const d = await r.json().catch(() => ({}));
-      const detail = d.detail;
-      const msg = typeof detail === "string" ? detail : (Array.isArray(detail) ? detail.map(e => e.msg).join("; ") : "请求失败");
-      onError && onError(msg);
-      return;
-    }
-
-    const reader = r.body.getReader();
-    const dec = new TextDecoder();
-    let buf = "";
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buf += dec.decode(value, { stream: true });
-      const parts = buf.split("\n\n");
-      buf = parts.pop();
-      for (const part of parts) {
-        const line = part.replace(/^data: /, "").trim();
-        if (!line) continue;
-        try {
-          const ev = JSON.parse(line);
-          if (ev.type === "stage") {
-            onStage && onStage(ev);
-          } else if (ev.type === "result") {
-            if (ev.success === false && ev.missing_fields?.length) {
-              onMissingFields && onMissingFields(ev);
-            } else {
-              onResult && onResult(ev);
-            }
-          } else if (ev.type === "modification_warning") {
-            onWarning && onWarning(ev);
-          } else if (ev.type === "error") {
-            onError && onError(ev.message || "规划出错");
-          }
-        } catch {}
-      }
-    }
-  } catch (e) {
-    if (e.name !== "AbortError") onError && onError(e.message || "网络错误");
-  }
-}
-
-async function confirmModification(pending_id, parent_plan_id, callbacks) {
-  return streamPlan(
-    { pending_id, parent_plan_id },
-    callbacks,
-    "/api/plan/confirm_modification"
-  );
-}
-
 /* ── Conversations / Agent Runtime ────────────────── */
 async function apiJson(url, options = {}) {
   const r = await fetch(url, {
@@ -150,14 +85,25 @@ async function apiJson(url, options = {}) {
     },
   });
   const data = await readJsonResponse(r);
-  if (!r.ok) throw new Error(
-    typeof data?.detail === "string" ? data.detail : "请求失败"
-  );
+  if (!r.ok) {
+    if (r.status === 401) clearAuth();
+    const detail = data?.detail;
+    const error = new Error(
+      r.status === 401 ? "登录状态已失效，请重新登录" : typeof detail === "string" ? detail : detail?.code === "conversation_run_active"
+        ? "当前对话已有任务进行中" : "请求失败"
+    );
+    error.code = r.status === 401 ? "auth_expired" : detail?.code || null;
+    error.detail = detail || null;
+    throw error;
+  }
   return data;
 }
 
-function listConversations() {
-  return apiJson("/api/conversations");
+function listConversations(relatedItineraryId = null) {
+  const query = new URLSearchParams();
+  if (relatedItineraryId) query.set("related_itinerary_id", relatedItineraryId);
+  const suffix = query.size ? `?${query}` : "";
+  return apiJson(`/api/conversations${suffix}`);
 }
 function createConversation(title = "") {
   return apiJson("/api/conversations", {
@@ -284,10 +230,61 @@ async function getHistory() {
   return r.json();
 }
 
+async function getHistoryPage(limit = 6, cursor = null) {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (cursor) params.set("cursor", cursor);
+  const r = await fetch(`/api/history?${params}`, { headers: authHeaders() });
+  if (!r.ok) throw new Error("历史行程暂时无法加载");
+  const data = await r.json();
+  return {
+    items: Array.isArray(data?.items) ? data.items : [],
+    next_cursor: data?.next_cursor || null,
+  };
+}
+
 async function getHistoryItem(id) {
   const r = await fetch("/api/history/" + id, { headers: authHeaders() });
   if (!r.ok) return null;
   return r.json();
+}
+
+function retryItineraryTips(id) {
+  return apiJson(`/api/history/${id}/tips`, { method: "POST" });
+}
+
+async function streamItineraryTips(id, callbacks = {}) {
+  const ctrl = new AbortController();
+  callbacks.onAbort?.(() => ctrl.abort());
+  try {
+    const r = await fetch(`/api/history/${id}/tips/stream`, {
+      headers: authHeaders(), signal: ctrl.signal,
+    });
+    if (!r.ok) throw new Error("订阅贴士更新失败");
+    const reader = r.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const frames = buffer.split("\n\n");
+      buffer = frames.pop();
+      for (const frame of frames) {
+        let kind = "custom", payload = {};
+        for (const line of frame.split("\n")) {
+          if (line.startsWith("event:")) kind = line.slice(6).trim();
+          else if (line.startsWith("data:")) {
+            try { payload = JSON.parse(line.slice(5).trim()); } catch {}
+          }
+        }
+        callbacks.onEvent?.({ kind, payload });
+      }
+    }
+    callbacks.onClose?.();
+  } catch (error) {
+    if (error.name !== "AbortError") callbacks.onError?.(error);
+  }
+  return () => ctrl.abort();
 }
 
 /* ── Profile ──────────────────────────────────────── */
@@ -359,7 +356,7 @@ function cssColor(name, fallback) {
 // seq 防竞态：切换天数后旧 search 的迟到回调直接丢弃，避免旧路线画到新地图上。
 function drawRealRoute(AMap, inst, path) {
   const seq = inst.seq;
-  const accent = cssColor("--accent", "#b5491f");
+  const accent = cssColor("--accent", "#FFD166");
   const fallbackLine = () => {
     inst.map.add(new AMap.Polyline({
       path, strokeColor: accent, strokeWeight: 3.5,
@@ -389,25 +386,36 @@ function _esc(s) {
   return String(s == null ? "" : s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 }
 
+function _mapIconSvg(name, size = 13, margin = 3) {
+  const paths = {
+    wallet: '<path d="M4 6h14a2 2 0 0 1 2 2v11H4z"/><path d="M4 6V4h12v2M15 12h5"/>',
+    location: '<path d="M20 10c0 5-8 11-8 11S4 15 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/>',
+    utensils: '<path d="M7 3v8M4 3v5a3 3 0 0 0 6 0V3M7 11v10M16 3v18M16 3c3 2 4 5 4 8h-4"/>',
+    star: '<path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-2.9-5.6 2.9 1.1-6.2L3 9.6l6.2-.9Z"/>',
+    clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  };
+  return `<svg aria-hidden="true" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:-2px;margin-right:${margin}px">${paths[name] || ""}</svg>`;
+}
+
 // 标记点击弹窗：图片 + 名称 + 评分/价格/时段 + 地址 + 推荐理由
 function markerInfoHtml(pt) {
   const it = pt.info || {};
   const isMeal = pt.kind === "meal";
-  const parts = [`<div style="width:252px;color:#2a221a;line-height:1.5">`];
+  const parts = [`<div style="width:252px;color:var(--ink,#6B4E3D);line-height:1.5;font-family:Nunito,'Noto Sans SC',sans-serif">`];
   if (it.photo) {
     parts.push(`<div style="width:100%;height:120px;border-radius:8px;background:url('${_esc(it.photo)}') center/cover;margin-bottom:8px"></div>`);
   }
   parts.push(`<div style="font-size:14.5px;font-weight:800;margin-bottom:5px">${_esc(pt.name)}</div>`);
   const meta = [];
-  if (isMeal) meta.push(`🍽 ${it.type === "lunch" ? "午餐" : "晚餐"}`);
-  if (it.rating) meta.push(`⭐ ${_esc(it.rating)}`);
-  if (isMeal && it.cost) meta.push(`💰 ¥${_esc(it.cost)}/人`);
-  if (!isMeal && it.start && it.end) meta.push(`🕒 ${_esc(it.start)}–${_esc(it.end)}`);
-  if (meta.length) parts.push(`<div style="font-size:12.5px;color:#6b5e4e;margin-bottom:4px">${meta.join("&nbsp;&nbsp;")}</div>`);
-  if (!isMeal && it.open) parts.push(`<div style="font-size:12px;color:#6b5e4e;margin-bottom:4px">开放时间：${_esc(it.open)}</div>`);
-  if (it.addr) parts.push(`<div style="font-size:12px;color:#6b5e4e;margin-bottom:6px">📍 ${_esc(it.addr)}</div>`);
+  if (isMeal) meta.push(`${_mapIconSvg("utensils")}${it.type === "lunch" ? "午餐" : "晚餐"}`);
+  if (it.rating) meta.push(`${_mapIconSvg("star")}${_esc(it.rating)}`);
+  if (isMeal && it.cost) meta.push(`${_mapIconSvg("wallet")}¥${_esc(it.cost)}/人`);
+  if (!isMeal && it.start && it.end) meta.push(`${_mapIconSvg("clock")}${_esc(it.start)}–${_esc(it.end)}`);
+  if (meta.length) parts.push(`<div style="font-size:12.5px;color:var(--ink-2,#7F6555);margin-bottom:4px">${meta.join("&nbsp;&nbsp;")}</div>`);
+  if (!isMeal && it.open) parts.push(`<div style="font-size:12px;color:var(--ink-2,#7F6555);margin-bottom:4px">开放时间：${_esc(it.open)}</div>`);
+  if (it.addr) parts.push(`<div style="font-size:12px;color:var(--ink-2,#7F6555);margin-bottom:6px">${_mapIconSvg("location")}${_esc(it.addr)}</div>`);
   if (it.reason) {
-    parts.push(`<div style="font-size:12px;line-height:1.7;background:#f4efe3;border-radius:8px;padding:8px 10px;color:#4a4036">${_esc(it.reason)}</div>`);
+    parts.push(`<div style="font-size:12px;line-height:1.7;background:var(--card-2,#FFF7DF);border-radius:10px;padding:8px 10px;color:var(--ink,#6B4E3D)">${_esc(it.reason)}</div>`);
   }
   parts.push(`</div>`);
   return parts.join("");
@@ -437,8 +445,8 @@ async function initAmapForDay(container, points) {
     map.clearMap();
     infoWindow.close();
 
-    const accent = cssColor("--accent", "#b5491f");
-    const second = cssColor("--second", "#3f5d3a");
+    const accent = cssColor("--accent", "#FFD166");
+    const second = cssColor("--second-fill", "#8FB26E");
     const path = [];
     let spotNo = 0;  // 景点单独编号，餐厅不占号
     pts.forEach((pt, i) => {
@@ -448,9 +456,9 @@ async function initAmapForDay(container, points) {
       const content = `<div style="width:28px;height:28px;display:grid;place-items:center;
         border-radius:${isMeal ? "7px" : "50%"};
         background:${isMeal ? second : accent};
-        color:#fdfaf2;font-size:${isMeal ? "14px" : "12.5px"};font-weight:800;border:2px solid #fff;
+        color:#5B3F30;font-size:${isMeal ? "14px" : "12.5px"};font-weight:800;border:2px solid #FFFDF8;
         box-shadow:0 2px 8px rgba(0,0,0,.3);${isMeal ? "transform:rotate(45deg);" : ""}">
-        <span style="${isMeal ? "transform:rotate(-45deg);" : ""}">${isMeal ? "🍜" : ++spotNo}</span></div>`;
+        <span style="${isMeal ? "transform:rotate(-45deg);display:grid;place-items:center;" : ""}">${isMeal ? _mapIconSvg("utensils", 15, 0) : ++spotNo}</span></div>`;
       const marker = new AMap.Marker({ position: pos, content, offset: new AMap.Pixel(-14, -14), zIndex: 100 + i });
       marker.on("click", () => {
         infoWindow.setContent(markerInfoHtml(pt));
@@ -470,6 +478,18 @@ function destroyAmap(container) {
   if (!inst) return;
   try { inst.map.destroy(); } catch {}
   _amapByContainer.delete(container);
+}
+
+function controlAmap(container, action) {
+  const inst = container && _amapByContainer.get(container);
+  if (!inst?.map) return false;
+  try {
+    if (action === "zoom-in") inst.map.setZoom(Math.min(20, inst.map.getZoom() + 1));
+    else if (action === "zoom-out") inst.map.setZoom(Math.max(3, inst.map.getZoom() - 1));
+    else if (action === "fit") inst.map.setFitView(null, false, [48, 48, 48, 48]);
+    else return false;
+    return true;
+  } catch { return false; }
 }
 
 /* ── Route ops ────────────────────────────────────── */
@@ -541,7 +561,7 @@ async function drawNavPairRoute(container, from, to) {
 
   const origin = [from.lng, from.lat];
   const dest = [to.lng, to.lat];
-  const accent = cssColor("--accent", "#b5491f");
+  const accent = cssColor("--accent", "#FFD166");
 
   const drawLine = (coords) => {
     if (seq !== inst.seq) return;
@@ -806,14 +826,15 @@ function adaptPlan(backendPlan, username) {
     candidate_spots: backendPlan.candidate_spots || [],
     hotel: backendPlan.hotel || "",
     notes: backendPlan.notes || "",
+    tip_status: backendPlan.tip_status || "succeeded",
   };
 }
 
 Object.assign(window, {
   getAuth, setAuth, clearAuth, authHeaders,
   loginApi, registerApi, checkAuth,
-  streamPlan, confirmModification,
-  getHistory, getHistoryItem,
+  getHistory, getHistoryPage, getHistoryItem,
+  retryItineraryTips, streamItineraryTips,
   getProfile, createMemoryFact, updateMemoryFact, approveMemoryFact, deleteMemoryFact,
   listConversations, createConversation, markConversationViewed,
   getConversationMessages, submitConversationMessage,

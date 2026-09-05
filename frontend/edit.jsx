@@ -58,7 +58,7 @@ function PoiSearchModal({ city, kind, title, onPick, onClose }) {
   return (
     <div className="modal-backdrop" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal-card poi-search-card">
-        <button className="modal-close" onClick={onClose}>✕</button>
+        <button className="modal-close" onClick={onClose} aria-label="关闭地点搜索"><UiIcon name="close" size={18} /></button>
         <div className="modal-title">{title}</div>
         <div className="poi-search-bar">
           <input className="form-input" autoFocus value={kw}
@@ -75,7 +75,7 @@ function PoiSearchModal({ city, kind, title, onPick, onClose }) {
             <button key={i} className="poi-result" onClick={() => onPick(p)}>
               <span className="poi-result-name">{p.name}</span>
               <span className="poi-result-meta">
-                {p.rating != null && <span>★ {Number(p.rating).toFixed(1)}</span>}
+                {p.rating != null && <span><UiIcon name="star" size={12} /> {Number(p.rating).toFixed(1)}</span>}
                 {p.cost && <span>¥{p.cost}/人</span>}
                 {p.open_time && <span>开放 {p.open_time}</span>}
                 {p.address && <span>{p.address}</span>}
@@ -139,14 +139,14 @@ function EditCard({ raw, onReplace, onDelete, onTimeChange, onDropCandidate }) {
         </div>
         <div className="edit-card-meta">
           {isAttr && <TimeRangeEditor start={raw.start_time} end={raw.end_time} onCommit={onTimeChange} />}
-          {raw.rating != null && <span className="star">★ {Number(raw.rating).toFixed(1)}</span>}
+          {raw.rating != null && <span className="star"><UiIcon name="star" size={13} /> {Number(raw.rating).toFixed(1)}</span>}
           {!isAttr && raw.cost && <span>¥{raw.cost}/人</span>}
           {isAttr && raw.open_time && <span>开放 {raw.open_time}</span>}
         </div>
       </div>
       <div className="edit-card-acts">
         <button className="edit-act" onClick={onReplace}>↔ 更换</button>
-        <button className="edit-act danger" onClick={onDelete} title="删除（可撤销）">✕</button>
+        <button className="edit-act danger" onClick={onDelete} title="删除（可撤销）" aria-label="删除（可撤销）"><UiIcon name="close" size={14} /></button>
       </div>
     </div>
   );
@@ -202,9 +202,9 @@ function EditableTimeline({ rawTimeline, ver, onReorder, onReplace, onDelete, on
       </div>
       {rawTimeline.length === 0 && <div className="edit-empty">这一天还没有安排，用下面的按钮添加吧</div>}
       <div className="edit-add-row">
-        <button className="edit-add" onClick={() => onAdd("attraction")}>＋ 景点</button>
-        <button className="edit-add" onClick={() => onAdd("lunch")}>＋ 午餐</button>
-        <button className="edit-add" onClick={() => onAdd("dinner")}>＋ 晚餐</button>
+        <button className="edit-add" onClick={() => onAdd("attraction")}><UiIcon name="plus" size={14} />景点</button>
+        <button className="edit-add" onClick={() => onAdd("lunch")}><UiIcon name="plus" size={14} />午餐</button>
+        <button className="edit-add" onClick={() => onAdd("dinner")}><UiIcon name="plus" size={14} />晚餐</button>
       </div>
     </div>
   );
@@ -214,13 +214,13 @@ function EditableTimeline({ rawTimeline, ver, onReorder, onReplace, onDelete, on
 function EditToolbar({ canUndo, canRedo, saving, saveErr, onUndo, onRedo, onCancel, onSave }) {
   return (
     <div className="edit-toolbar">
-      <button className="edit-tool" disabled={!canUndo} onClick={onUndo}>↩ 撤销</button>
-      <button className="edit-tool" disabled={!canRedo} onClick={onRedo}>↪ 重做</button>
+      <button className="edit-tool" disabled={!canUndo} onClick={onUndo}><UiIcon name="undo" size={14} />撤销</button>
+      <button className="edit-tool" disabled={!canRedo} onClick={onRedo}><UiIcon name="redo" size={14} />重做</button>
       <span className="edit-toolbar-hint">{saveErr ? "" : "拖动 ⠿ 调整顺序 · 点时间可修改"}</span>
       {saveErr && <span className="edit-save-err">{saveErr}</span>}
-      <button className="edit-tool" onClick={onCancel}>✕ 取消</button>
+      <button className="edit-tool" onClick={onCancel}><UiIcon name="close" size={14} />取消</button>
       <button className="edit-tool primary" disabled={saving} onClick={onSave}>
-        {saving ? "保存中…" : "✓ 完成编辑"}
+        {!saving && <UiIcon name="check" size={14} />}{saving ? "保存中…" : "完成编辑"}
       </button>
     </div>
   );

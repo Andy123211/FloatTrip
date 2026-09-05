@@ -21,6 +21,12 @@ LEGACY_CONSTRAINT_FIELDS = {
     "habit_preference": "travel_pace",
 }
 
+# A model occasionally labels an explicit negative instruction as ``prefer``.
+# The text itself is authoritative for unambiguous, user-facing prohibitions.
+_EXPLICIT_AVOID_TERMS = (
+    "避开", "不去", "不要去", "不想去", "不安排", "不参观", "排除", "不吃", "忌口",
+)
+
 
 def _constraint_id(category: str, value: str, *, legacy_key: str = "") -> str:
     return str(uuid.uuid5(uuid.NAMESPACE_URL, f"tripagent-brief:{legacy_key}:{category}:{value}"))
@@ -38,6 +44,8 @@ def normalize_trip_constraint(
     polarity = str(item.get("polarity") or "fact")
     if polarity not in POLARITIES:
         raise ValueError("invalid trip constraint polarity")
+    if any(term in value for term in _EXPLICIT_AVOID_TERMS):
+        polarity = "avoid"
     source = str(item.get("source") or default_source)
     if source not in {"conversation", "manual"}:
         source = default_source
@@ -85,6 +93,24 @@ def normalize_brief_data(data: dict[str, Any] | None) -> dict[str, Any]:
                     "evidence_sequences": [],
                 }
             )
+    focus = result.get("trip_focus")
+    focus_constraint = {
+        "sights_first": ("attraction_preference", "景点为主，餐饮仅作就近用餐"),
+        "food_first": ("food_preference", "吃吃喝喝为主"),
+        "balanced": ("other_travel_preference", "景点与餐饮均衡安排"),
+    }.get(focus)
+    if focus_constraint:
+        category, value = focus_constraint
+        key = (category, value.casefold(), "prefer")
+        if key not in seen:
+            constraints.append({
+                "id": _constraint_id(category, value, legacy_key="trip_focus"),
+                "category": category,
+                "value_text": value,
+                "polarity": "prefer",
+                "source": "conversation",
+                "evidence_sequences": [],
+            })
     result["trip_constraints"] = constraints
     result["excluded_memory_fact_ids"] = sorted(
         {str(value) for value in result.get("excluded_memory_fact_ids") or [] if value}
@@ -252,3 +278,27 @@ def constraints_for_prompt(constraints: list[dict[str, Any]]) -> str:
         f"- [{item.get('category')}/{item.get('polarity')}/{item.get('source')}] {constraint_directive(item)}"
         for item in constraints
     )
+
+
+def planning_instruction(snapshot: dict[str, Any]) -> str:
+    """Build the immutable, user-facing instruction consumed by formal planning.
+
+    The conversation agent is responsible for collecting and confirming the
+    brief.  Formal planning must consume that confirmed intent directly instead
+    of asking another model to infer it from a reconstructed query.
+    """
+    destination = str(snapshot.get("destination") or "目的地未知").strip()
+    start_date = str(snapshot.get("start_date") or "").strip()
+    end_date = str(snapshot.get("end_date") or "").strip()
+    days = snapshot.get("days")
+    when = f"{start_date}至{end_date}" if start_date and end_date else "日期待确认"
+    duration = f"{days}日" if days else "多日"
+    parts = [f"为用户规划{when}的{destination}{duration}游"]
+    for item in snapshot.get("effective_constraints") or []:
+        directive = constraint_directive(item)
+        if directive:
+            parts.append(directive)
+    budget = str(snapshot.get("trip_budget") or snapshot.get("budget") or "").strip()
+    if budget:
+        parts.append(f"本次预算：{budget}")
+    return "；".join(dict.fromkeys(parts)) + "。"

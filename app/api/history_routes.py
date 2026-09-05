@@ -2,11 +2,21 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Header, HTTPException
+import asyncio
+import copy
+import json
+from collections.abc import AsyncIterator
+
+from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi.responses import StreamingResponse
 
 from app.core.auth import decode_token
 from app.core.database import get_conn
-from app.core.memory import list_itineraries, load_itinerary
+from app.core.memory import list_itineraries, list_itineraries_page, load_itinerary
+from app.planning.restaurant_enrichment import route_fingerprint
+from app.planning.tip_enrichment import load_tip_enrichment
+from app.runtime.container import manager, scheduler
+from app.runtime.models import RunKind
 
 router = APIRouter(prefix="/api/history", tags=["history"])
 
@@ -20,25 +30,136 @@ def _require_user(authorization: str | None) -> str:
     return user_id
 
 
+def _owned_itinerary(plan_id: str, user_id: str, conn):
+    row = conn.execute("SELECT user_id FROM itineraries WHERE id=?", (plan_id,)).fetchone()
+    if not row:
+        raise HTTPException(404, "行程不存在")
+    if row["user_id"] != user_id:
+        raise HTTPException(403, "无权访问")
+    data = load_itinerary(plan_id, conn)
+    if not data:
+        raise HTTPException(404, "行程不存在")
+    return data
+
+
+def _tip_run_status(plan_id: str, fingerprint: str, conn) -> str | None:
+    """Find the newest independent tip run for this immutable route version."""
+    rows = conn.execute(
+        "SELECT status,request_snapshot_json FROM runs WHERE kind='spot_tips' ORDER BY created_at DESC"
+    ).fetchall()
+    for row in rows:
+        try:
+            snapshot = json.loads(row["request_snapshot_json"])
+        except (TypeError, json.JSONDecodeError):
+            continue
+        if snapshot.get("itinerary_id") == plan_id and snapshot.get("route_fingerprint") == fingerprint:
+            return str(row["status"])
+    return None
+
+
+def _project_tip_enrichment(data: dict, user_id: str, conn) -> dict:
+    """Overlay route-versioned tips without modifying persisted core route JSON."""
+    projected = copy.deepcopy(data)
+    plan = projected["plan"]
+    fingerprint = route_fingerprint(plan)
+    enrichment = load_tip_enrichment(projected["id"], user_id, fingerprint, conn)
+    tips = (enrichment or {}).get("tips") or {}
+    has_tips = bool(tips)
+    for day in plan.get("days") or []:
+        for item in day.get("timeline") or []:
+            if item.get("type") == "attraction":
+                item["tip"] = tips.get(str(item.get("name") or "")) or None
+    run_status = _tip_run_status(projected["id"], fingerprint, conn)
+    # A historical empty payload came from the former in-graph fallback.  It
+    # is not a useful completed enrichment and must remain retryable.
+    plan["tip_status"] = "succeeded" if has_tips else (
+        "failed" if run_status == "succeeded" else (run_status or "unavailable")
+    )
+    plan["tip_route_fingerprint"] = fingerprint
+    return projected
+
+
 @router.get("")
-def get_history(authorization: str | None = Header(default=None)):
+def get_history(
+    authorization: str | None = Header(default=None),
+    limit: int | None = Query(default=None, ge=1, le=20),
+    cursor: str | None = Query(default=None),
+):
     user_id = _require_user(authorization)
+    if limit is None:
+        with get_conn() as conn:
+            items = list_itineraries(user_id, conn)
+        return items
+    cursor_parts = None
+    if cursor:
+        try:
+            created_at, itinerary_id = cursor.rsplit("|", 1)
+            if not created_at or not itinerary_id:
+                raise ValueError
+            cursor_parts = (created_at, itinerary_id)
+        except ValueError as exc:
+            raise HTTPException(400, "历史记录游标无效") from exc
     with get_conn() as conn:
-        items = list_itineraries(user_id, conn)
-    return items
+        items, next_cursor = list_itineraries_page(
+            user_id, conn, limit=limit, cursor=cursor_parts
+        )
+    return {
+        "items": items,
+        "next_cursor": "|".join(next_cursor) if next_cursor else None,
+    }
 
 
 @router.get("/{plan_id}")
 def get_itinerary(plan_id: str, authorization: str | None = Header(default=None)):
     user_id = _require_user(authorization)
     with get_conn() as conn:
-        # 验证该行程属于该用户
-        row = conn.execute(
-            "SELECT user_id FROM itineraries WHERE id=?", (plan_id,)
-        ).fetchone()
-        if not row:
-            raise HTTPException(404, "行程不存在")
-        if row["user_id"] != user_id:
-            raise HTTPException(403, "无权访问")
-        data = load_itinerary(plan_id, conn)
-    return data
+        data = _owned_itinerary(plan_id, user_id, conn)
+        return _project_tip_enrichment(data, user_id, conn)
+
+
+@router.post("/{plan_id}/tips")
+async def retry_itinerary_tips(plan_id: str, authorization: str | None = Header(default=None)):
+    """Queue one user-requested retry for the route currently being displayed."""
+    user_id = _require_user(authorization)
+    with get_conn() as conn:
+        data = _owned_itinerary(plan_id, user_id, conn)
+        fingerprint = route_fingerprint(data["plan"])
+        existing = load_tip_enrichment(plan_id, user_id, fingerprint, conn)
+        if (existing or {}).get("tips"):
+            return {"status": "succeeded", "cached": True}
+        active_status = _tip_run_status(plan_id, fingerprint, conn)
+        if active_status in {"queued", "running"}:
+            return {"status": active_status, "cached": True}
+    run = manager.create(
+        user_id=user_id,
+        kind=RunKind.SPOT_TIPS,
+        itinerary_id=plan_id,
+        request_snapshot={"itinerary_id": plan_id, "route_fingerprint": fingerprint},
+    )
+    await manager.publish_itinerary(
+        plan_id,
+        {"kind": "itinerary.tip_status_changed", "itinerary_id": plan_id, "status": "queued"},
+    )
+    scheduler.notify()
+    return {"status": "queued", "cached": False, "run": run}
+
+
+@router.get("/{plan_id}/tips/stream")
+async def stream_itinerary_tips(plan_id: str, authorization: str | None = Header(default=None)):
+    user_id = _require_user(authorization)
+    with get_conn() as conn:
+        _owned_itinerary(plan_id, user_id, conn)
+
+    async def events() -> AsyncIterator[str]:
+        async with manager.bridge.subscribe(f"itinerary:{plan_id}") as stream:
+            async for item in stream:
+                payload = json.dumps(item.payload, ensure_ascii=False)
+                yield f"event: {item.kind}\ndata: {payload}\n\n"
+                # Itinerary streams intentionally stay open after a terminal tip
+                # job: the same detail page can receive a later manual retry.
+                await asyncio.sleep(0)
+
+    return StreamingResponse(
+        events(), media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )

@@ -36,7 +36,7 @@ function AuthModal({ onSuccess, onClose, reason }) {
   return (
     <div className="modal-backdrop" onClick={(e) => e.target === e.currentTarget && onClose && onClose()}>
       <div className="modal-card">
-        <button className="modal-close" onClick={onClose}>✕</button>
+        <button className="modal-close" onClick={onClose} aria-label="关闭登录窗口"><UiIcon name="close" size={18} /></button>
         <div className="modal-title">途见 · AI 旅行规划</div>
         {reason && <div className="modal-sub">{reason}</div>}
         <div className="auth-tabs">
@@ -64,25 +64,12 @@ function AuthModal({ onSuccess, onClose, reason }) {
   );
 }
 
-/* ── 修改顾虑模态框 ───────────────────────────── */
-function ConcernModal({ concern, onKeep, onConfirm }) {
-  return (
-    <div className="modal-backdrop">
-      <div className="modal-card">
-        <div className="modal-title">规划师有个顾虑</div>
-        <div className="modal-sub">AI 在调整行程时发现了一个问题，请你决定如何处理：</div>
-        <div className="concern-box">{concern}</div>
-        <div className="concern-actions">
-          <button className="keep-btn" onClick={onKeep}>放弃，保留原行程</button>
-          <button className="confirm-btn" onClick={onConfirm}>确认，继续修改</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 /* ── 持久化旅行对话 ─────────────────────────────── */
-function ChatPage({ currentUsername, onRequestLogin, onOpenPlan }) {
+function ChatPage({
+  currentUsername, onRequestLogin, onOpenPlan,
+  revisionTrigger, onRevisionConsumed,
+  initialDraft = "", onInitialDraftConsumed,
+}) {
   const [conversations, setConversations] = React.useState([]);
   const [activeId, setActiveId] = React.useState(null);
   const [state, setState] = React.useState(() => ChatState.initialState());
@@ -93,36 +80,51 @@ function ChatPage({ currentUsername, onRequestLogin, onOpenPlan }) {
   const [visibleRunIds, setVisibleRunIds] = React.useState(() => new Set());
   const [observerReady, setObserverReady] = React.useState(false);
   const [composerTarget, setComposerTarget] = React.useState(null);
+  const [revisionSubmitting, setRevisionSubmitting] = React.useState(false);
   const [compressing, setCompressing] = React.useState(false);
   const [compressionFeedback, setCompressionFeedback] = React.useState("");
   const abortsRef = React.useRef({});
   const activeIdRef = React.useRef(null);
   const runNodesRef = React.useRef({});
   const composerRef = React.useRef(null);
+  const firstJourneyRef = React.useRef(null);
   const errorRef = React.useRef(null);
   const waitingRunsRef = React.useRef(new Set());
+  const consumedRevisionNoncesRef = React.useRef(new Set());
   const activityItems = ChatState.activityItems(state);
   const runList = Object.values(state.runs).sort(
     (a, b) => String(a.created_at || "").localeCompare(String(b.created_at || ""))
   );
-  const activeRuns = runList.filter(
-    run => run.kind !== "chat" && ["queued", "running", "waiting_user"].includes(run.status)
+  const blockingRuns = runList.filter(run =>
+    run.kind === "chat" && ["queued", "running", "waiting_user"].includes(run.status)
   );
+  const blockingRun = blockingRuns.find(run => run.status === "waiting_user")
+    || blockingRuns[blockingRuns.length - 1]
+    || null;
+  const activeRuns = blockingRun?.journey_step_index !== undefined ? [blockingRun] : [];
   const activeConversation = conversations.find(item => item.id === activeId) || null;
   const conversationArchived = activeConversation?.status === "archived";
   const hasConversationMessages = Object.keys(state.messages || {}).length > 0;
 
+  React.useEffect(() => {
+    if (!initialDraft) return;
+    setDraft(initialDraft);
+    window.setTimeout(() => composerRef.current?.focus(), 0);
+    onInitialDraftConsumed?.();
+  }, [initialDraft, onInitialDraftConsumed]);
+
   const sidebarConversations = conversations.map(item => {
     if (item.id !== activeId || item.status === "archived") return item;
-    const formalRuns = runList.filter(run => run.kind !== "chat");
+    const chatRuns = runList.filter(run => run.kind === "chat");
     return {
       ...item,
       has_waiting_user: item.has_waiting_user
-        || formalRuns.some(run => run.status === "waiting_user"),
+        || chatRuns.some(run => run.status === "waiting_user"),
       has_ready_brief: item.has_ready_brief
         || Object.values(state.briefs).some(brief => brief.status === "ready"),
       has_active_planning: item.has_active_planning
-        || formalRuns.some(run => ["queued", "running"].includes(run.status)),
+        || chatRuns.some(run => ["queued", "running"].includes(run.status)
+          && run.journey_step_index !== undefined),
     };
   });
 
@@ -163,11 +165,8 @@ function ChatPage({ currentUsername, onRequestLogin, onOpenPlan }) {
         const completed = (
           event.payload?.kind === "run.status" && event.payload.status === "succeeded"
         ) || (event.kind === "end" && event.payload?.status === "succeeded");
-        if (run.kind !== "chat" && completed) {
+        if (run.kind === "chat" && completed && run.journey_step_index !== undefined) {
           markViewedIfVisible(run.conversation_id);
-        }
-        if (event.payload?.kind === "run.created" && event.payload.run?.id) {
-          subscribeRun(event.payload.run);
         }
       },
       onClose: () => { delete abortsRef.current[run.id]; },
@@ -190,7 +189,7 @@ function ChatPage({ currentUsername, onRequestLogin, onOpenPlan }) {
         getActivePlanningBrief(conversationId),
       ]);
       const activeRuns = runs.filter(
-        run => ["queued", "running", "waiting_user"].includes(run.status)
+        run => run.kind === "chat" && ["queued", "running", "waiting_user"].includes(run.status)
       );
       const eventHistories = await Promise.all(
         activeRuns.map(async run => [run.id, await getRunEvents(run.id, 0)])
@@ -201,7 +200,14 @@ function ChatPage({ currentUsername, onRequestLogin, onOpenPlan }) {
         const previous = next.runs[run.id] || {};
         next.runs[run.id] = { ...previous, ...run };
       });
-      if (brief) next.briefs[brief.id] = brief;
+      if (brief) next.briefs[brief.id] = {
+        id: brief.id,
+        status: brief.status,
+        data: brief.data || {},
+        missing_fields: brief.missing_fields || [],
+        created_at: brief.created_at,
+        updated_at: brief.updated_at,
+      };
       eventHistories.forEach(([runId, events]) => {
         events.forEach(event => {
           next = ChatState.applyEvent(next, runId, event);
@@ -228,7 +234,8 @@ function ChatPage({ currentUsername, onRequestLogin, onOpenPlan }) {
     listConversations().then(async items => {
       if (!alive) return;
       setConversations(items);
-      if (items[0]) await loadConversation(items[0].id);
+      const initial = items.find(item => item.status !== "archived") || items[0];
+      if (initial) await loadConversation(initial.id);
       else setLoading(false);
     }).catch(e => { setError(e.message); setLoading(false); });
     return () => {
@@ -236,6 +243,22 @@ function ChatPage({ currentUsername, onRequestLogin, onOpenPlan }) {
       Object.values(abortsRef.current).forEach(abort => abort());
     };
   }, [currentUsername]); // eslint-disable-line
+
+  // 没有行程时，以「生成中的旅程」取代空白聊天舞台；系统要求减少动态时完全跳过。
+  React.useEffect(() => {
+    if (loading || activityItems.length || !firstJourneyRef.current || !window.gsap) return undefined;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return undefined;
+    const root = firstJourneyRef.current;
+    const ctx = window.gsap.context(() => {
+      const tl = window.gsap.timeline({ defaults: { ease: "power3.out" } });
+      tl.from(".first-journey-orbit", { scale: .72, autoAlpha: 0, duration: .72 })
+        .from(".first-journey-route path", { strokeDashoffset: 220, duration: .9, stagger: .1 }, "<.12")
+        .from(".first-journey-pin", { y: 18, scale: .25, autoAlpha: 0, duration: .42, stagger: .11, ease: "back.out(1.8)" }, "<.28")
+        .from(".first-journey-copy > *", { y: 15, autoAlpha: 0, duration: .45, stagger: .1 }, "<.05");
+      window.gsap.to(".first-journey-sun", { y: -7, duration: 2.1, ease: "sine.inOut", repeat: -1, yoyo: true });
+    }, root);
+    return () => ctx.revert();
+  }, [loading, activityItems.length]);
 
   React.useEffect(() => {
     if (!currentUsername) return;
@@ -266,8 +289,10 @@ function ChatPage({ currentUsername, onRequestLogin, onOpenPlan }) {
       const created = await createConversation("新的旅行对话");
       setConversations(previous => [created, ...previous]);
       await loadConversation(created.id);
+      return created;
     } catch (e) {
       setError(e.message || "暂时无法新建对话");
+      return null;
     }
   };
 
@@ -284,34 +309,13 @@ function ChatPage({ currentUsername, onRequestLogin, onOpenPlan }) {
         return next;
       });
       setObserverReady(true);
-    }, { root: document.querySelector(".chat-feed"), threshold: 0.3 });
+    }, { threshold: 0.3 });
     Object.values(runNodesRef.current).filter(Boolean).forEach(node => observer.observe(node));
     return () => observer.disconnect();
   }, [activityItems.map(item => item.key).join("|")]);
 
-  const send = async () => {
-    const content = draft.trim();
-    if (!content) return;
-    if (composerTarget?.mode === "resume") {
-      const run = composerTarget.run;
-      const interaction = run.pending_interaction;
-      if (!interaction?.interaction_id) return;
-      setDraft("");
-      setError("");
-      try {
-        const resumed = await resumeRuntimeRun(run.id, interaction.interaction_id, content);
-        setState(previous => ({
-          ...previous,
-          runs: { ...previous.runs, [run.id]: { ...previous.runs[run.id], ...resumed } },
-        }));
-        setComposerTarget(null);
-      } catch (e) {
-        setDraft(content);
-        setError(e.message || "回复提交失败，请重试");
-      }
-      return;
-    }
-    let conversationId = activeId;
+  const submitChatContent = async (content, target, requestedConversationId = activeId) => {
+    let conversationId = requestedConversationId;
     if (!conversationId) {
       const created = await createConversation(content.slice(0, 20));
       setConversations(previous => [created, ...previous]);
@@ -319,46 +323,125 @@ function ChatPage({ currentUsername, onRequestLogin, onOpenPlan }) {
       activeIdRef.current = conversationId;
       setActiveId(conversationId);
     }
+    const context = target?.mode === "revision"
+      ? { related_itinerary_id: target.itineraryId }
+      : {};
+    const result = await submitConversationMessage(conversationId, content, context);
+    setConversations(previous => previous.map(item => (
+      item.id === conversationId && (!item.title || item.title === "新的旅行对话")
+        ? { ...item, title: content.slice(0, 24), updated_at: new Date().toISOString() }
+        : item
+    )));
+    setState(previous => {
+      let next = ChatState.upsertMessage(previous, result.message);
+      next = { ...next, runs: { ...next.runs, [result.run.id]: result.run } };
+      return next;
+    });
+    subscribeRun(result.run);
+    return result;
+  };
+
+  const send = async () => {
+    if (revisionSubmitting) return;
+    const content = draft.trim();
+    if (!content) return;
+    if (blockingRun?.status === "waiting_user") {
+      const run = blockingRun;
+      const interaction = run.pending_interaction;
+      if (!interaction?.interaction_id) return;
+      setDraft("");
+      setError("");
+      try {
+        const resumed = await resumeRuntimeRun(run.id, interaction.interaction_id, content);
+        setState(previous => {
+          let next = previous;
+          if (resumed.accepted_message) next = ChatState.upsertMessage(next, resumed.accepted_message);
+          return {
+            ...next,
+            runs: { ...next.runs, [run.id]: { ...next.runs[run.id], ...resumed, pending_interaction: null } },
+          };
+        });
+        setComposerTarget(null);
+      } catch (e) {
+        setDraft(content);
+        setError(e.message || "回复提交失败，请重试");
+      }
+      return;
+    }
+    if (blockingRun) return;
     setDraft("");
     setError("");
     try {
-      const context = composerTarget?.mode === "revision"
-        ? { related_itinerary_id: composerTarget.itineraryId }
-        : {};
-      const result = await submitConversationMessage(conversationId, content, context);
-      setConversations(previous => previous.map(item => (
-        item.id === conversationId && (!item.title || item.title === "新的旅行对话")
-          ? { ...item, title: content.slice(0, 24), updated_at: new Date().toISOString() }
-          : item
-      )));
-      setState(previous => {
-        let next = ChatState.upsertMessage(previous, result.message);
-        next = { ...next, runs: { ...next.runs, [result.run.id]: result.run } };
-        return next;
-      });
-      subscribeRun(result.run);
+      let conversationId = activeId;
+      if (composerTarget?.mode === "revision" && (!conversationId || conversationArchived)) {
+        const created = await newConversation();
+        if (!created) throw new Error("暂时无法新建对话");
+        conversationId = created.id;
+      }
+      await submitChatContent(content, composerTarget, conversationId);
       setComposerTarget(null);
     } catch (e) {
       setDraft(content);
       setError(e.message || "发送失败");
+      if (e.code === "conversation_run_active" && activeId) await loadConversation(activeId);
     }
   };
 
+  React.useEffect(() => {
+    if (!revisionTrigger || loading || !currentUsername) return;
+    const nonce = revisionTrigger.nonce;
+    if (consumedRevisionNoncesRef.current.has(nonce)) return;
+    consumedRevisionNoncesRef.current.add(nonce);
+    const target = {
+      mode: "revision",
+      itineraryId: revisionTrigger.itineraryId,
+      label: "从行程详情发起的修改",
+    };
+    const content = String(revisionTrigger.content || "").trim();
+    setComposerTarget(target);
+    setDraft("");
+    setError("");
+    setRevisionSubmitting(true);
+    (async () => {
+      try {
+        let conversationId = activeId;
+        if (!conversationId || conversationArchived) {
+          const created = await newConversation();
+          if (!created) throw new Error("暂时无法新建对话");
+          conversationId = created.id;
+          setComposerTarget(target);
+        }
+        await submitChatContent(content, target, conversationId);
+        setComposerTarget(null);
+      } catch (e) {
+        setDraft(content);
+        setComposerTarget(target);
+        setError(e.message || "修改请求发送失败，请重试");
+      } finally {
+        setRevisionSubmitting(false);
+        onRevisionConsumed?.(nonce);
+      }
+    })();
+  }, [revisionTrigger?.nonce, loading, currentUsername]); // eslint-disable-line
+
   const refreshBrief = brief => {
+    const visibleBrief = {
+      id: brief.id,
+      status: brief.status,
+      data: brief.data || {},
+      missing_fields: brief.missing_fields || [],
+      created_at: brief.created_at,
+      updated_at: brief.updated_at,
+    };
     setState(previous => ({
       ...previous,
-      briefs: { ...previous.briefs, [brief.id]: brief },
+      briefs: { ...previous.briefs, [brief.id]: visibleBrief },
     }));
   };
 
   const submitBrief = async brief => {
-    const result = await submitPlanningBrief(brief.id);
-    refreshBrief(result.brief);
-    setState(previous => ({
-      ...previous,
-      runs: { ...previous.runs, [result.run.id]: result.run },
-    }));
-    subscribeRun(result.run);
+    if (blockingRun) throw new Error("当前对话已有任务进行中");
+    await submitChatContent("开始规划这份行程", null, activeId);
   };
 
   const discardBrief = async brief => {
@@ -457,11 +540,11 @@ function ChatPage({ currentUsername, onRequestLogin, onOpenPlan }) {
     : [];
 
   return (
-    <div className="chat-shell page-fade">
-      <aside className={`chat-sidebar ${sidebarOpen ? "open" : ""}`} aria-label="旅行对话列表">
+    <div className="chat-shell workspace-shell page-fade">
+      <aside className={`chat-sidebar ${sidebarOpen ? "open" : ""}`} aria-label="旅行工作区记录">
         <div className="chat-sidebar-head">
-          <div><small>MY JOURNEYS</small><strong>旅行对话</strong></div>
-          <button onClick={newConversation} aria-label="创建新旅行对话">＋ 新对话</button>
+          <div><small>MY JOURNEYS</small><strong>旅行线索</strong></div>
+          <button onClick={newConversation} aria-label="开始一段新的旅行规划"><UiIcon name="plus" size={15} />新旅程</button>
         </div>
         <div className="conversation-list">
           {sidebarConversations.map(item => {
@@ -493,17 +576,17 @@ function ChatPage({ currentUsername, onRequestLogin, onOpenPlan }) {
       <main className="chat-main">
         <div className="chat-header">
           <button className="chat-sidebar-toggle" onClick={() => setSidebarOpen(value => !value)}
-            aria-expanded={sidebarOpen} aria-label="打开旅行对话列表">☰</button>
+            aria-expanded={sidebarOpen} aria-label="打开旅行对话列表"><UiIcon name="menu" size={19} /></button>
           <div className="chat-title-copy">
-            <h2>和途途聊旅行</h2>
-            <p>{conversationArchived ? "这段对话已归档，途途正在把有用的旅行习惯整理进画像。" : "问一个旅行问题，或把一个模糊念头慢慢变成可出发的行程。"}</p>
+            <h2>旅行工作区</h2>
+            <p>{conversationArchived ? "这段旅程已归档，途途正在把有用的旅行习惯整理进画像。" : "行程、路线和细节在这里生长；需要时，再叫途途一起推敲。"}</p>
           </div>
           {activeConversation && !conversationArchived && (
             <div className="chat-memory-actions">
               {hasConversationMessages && <button className="chat-compress-btn" disabled={compressing} onClick={compressCurrent} aria-label="立即压缩较早的完整对话轮次">
-                <span aria-hidden="true">≋</span>{compressing ? "正在压缩…" : "主动压缩"}
+                <UiIcon name="compress" size={15} />{compressing ? "正在压缩…" : "主动压缩"}
               </button>}
-              <button className="chat-archive-btn" onClick={archiveCurrent}>归档对话</button>
+              <button className="chat-archive-btn" onClick={archiveCurrent}><UiIcon name="archive" size={15} />归档对话</button>
             </div>
           )}
           {conversationArchived && (
@@ -511,27 +594,29 @@ function ChatPage({ currentUsername, onRequestLogin, onOpenPlan }) {
               {activeConversation.finalization_status === "succeeded" ? "记忆已整理" : activeConversation.finalization_status === "failed" ? "记忆整理失败" : "记忆整理中"}
             </span>
           )}
-          <div className="chat-guide" role="img" aria-label="途途，旅行向导">
-            <span className="guide-sun" aria-hidden="true" />
-            <span className="guide-map" aria-hidden="true" />
-            <span className="guide-hat" aria-hidden="true" />
-            <span className="guide-face" aria-hidden="true"><i /><i /></span>
-          </div>
-          {activeRuns.length > 0 && <span className="chat-task-count">{activeRuns.length} 个旅程在进行</span>}
+          {blockingRun && <span className="chat-task-count">当前对话处理中</span>}
         </div>
         {compressionFeedback && <div className="chat-compression-feedback" role="status">
-          <span aria-hidden="true">✓</span>{compressionFeedback}
+          <UiIcon name="check" size={14} />{compressionFeedback}
         </div>}
         <div className="chat-feed" role="log" aria-label="旅行对话活动" aria-live="off">
           {loading && <div className="chat-empty">正在恢复对话…</div>}
           {!loading && activityItems.length === 0 && (
-            <div className="chat-empty">
-              <span className="chat-empty-kicker">START WITH A THOUGHT</span>
-              <strong>从一个念头，走到一份行程</strong>
-              <span>可以先随便问问，也可以直接告诉我你想去哪里。</span>
-              <div className="chat-empty-prompts">
-                <button onClick={() => setDraft("十月适合去云南吗？")}>聊聊灵感<small>十月适合去云南吗？</small></button>
-                <button onClick={() => setDraft("帮我规划去云南旅行")}>开始规划<small>帮我规划去云南旅行</small></button>
+            <div ref={firstJourneyRef} className="first-journey">
+              <div className="first-journey-orbit" aria-hidden="true">
+                <i className="first-journey-sun" />
+                <svg className="first-journey-route" viewBox="0 0 360 164" fill="none"><path d="M22 123C76 125 83 42 145 77s67 66 111 22c26-27 53-17 80-8" /></svg>
+                <b className="first-journey-pin pin-a">1</b><b className="first-journey-pin pin-b">2</b><b className="first-journey-pin pin-c">3</b>
+                <span>下一段旅程</span>
+              </div>
+              <div className="first-journey-copy">
+                <span className="chat-empty-kicker">YOUR NEXT ITINERARY</span>
+                <strong>先写下目的地，<br />我们把它铺成路线。</strong>
+                <p>不必把对话当作目的地。说出一个念头，下一屏就会是一份可以编辑的旅行计划。</p>
+                <div className="chat-empty-prompts">
+                  <button onClick={() => setDraft("十月适合去云南吗？")}>找找灵感<small>十月适合去云南吗？</small></button>
+                  <button onClick={() => setDraft("帮我规划去云南旅行")}>创建行程<small>帮我规划去云南旅行</small></button>
+                </div>
               </div>
             </div>
           )}
@@ -558,6 +643,7 @@ function ChatPage({ currentUsername, onRequestLogin, onOpenPlan }) {
               setDraft("");
             }}
             registerRunNode={registerRunNode}
+            onItineraryOpen={itineraryId => onOpenPlan?.(itineraryId)}
           />
         </div>
         <div className="chat-status-live" aria-live="polite" aria-atomic="true">
@@ -589,27 +675,31 @@ function ChatPage({ currentUsername, onRequestLogin, onOpenPlan }) {
             </div>
           ) : <>
           <div className="chat-composer">
-            {composerTarget && (
+            {composerTarget?.mode === "revision" && !blockingRun && (
               <div className="composer-target">
                 <span>{composerTarget.mode === "resume" ? "正在回复任务" : "正在修改行程"}</span>
                 <strong>{composerTarget.label}</strong>
-                <button onClick={() => setComposerTarget(null)} aria-label="取消指定任务回复">×</button>
+                <button onClick={() => setComposerTarget(null)} aria-label="取消指定任务回复"><UiIcon name="close" size={15} /></button>
               </div>
             )}
             <textarea ref={composerRef} value={draft} onChange={e => setDraft(e.target.value)}
-              aria-label={composerTarget ? composerTarget.label : "给途途发送消息"}
-              placeholder={composerTarget?.mode === "resume" ? "补充所需信息…" : composerTarget?.mode === "revision" ? "说说你想怎么调整…" : "继续聊天，或描述一趟想规划的旅行…"}
+              disabled={!!blockingRun && blockingRun.status !== "waiting_user"}
+              aria-label={blockingRun?.status === "waiting_user" ? "回答当前问题" : composerTarget ? composerTarget.label : "给途途发送消息"}
+              placeholder={blockingRun?.status === "waiting_user" ? "回答上方问题，继续这次规划…" : blockingRun ? "规划进行中" : composerTarget?.mode === "revision" ? "说说你想怎么调整…" : "继续聊天，或描述一趟想规划的旅行…"}
               onKeyDown={e => {
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault(); send();
                 }
               }} />
-            <button className="composer-send" onClick={send} disabled={!draft.trim()} aria-label="发送消息">
-              <span aria-hidden="true">↑</span>
-              <span className="composer-send-label">发送</span>
+            <button className={`composer-send ${blockingRun && blockingRun.status !== "waiting_user" ? "is-stop" : ""}`}
+              onClick={blockingRun && blockingRun.status !== "waiting_user" ? () => controlRun(blockingRun, "cancel") : send}
+              disabled={blockingRun?.status === "waiting_user" ? !draft.trim() : !blockingRun && (!draft.trim() || revisionSubmitting)}
+              aria-label={blockingRun && blockingRun.status !== "waiting_user" ? "停止当前任务" : "发送消息"}>
+              <span aria-hidden="true"><UiIcon name={blockingRun && blockingRun.status !== "waiting_user" ? "stop" : "arrow-up"} size={18} /></span>
+              <span className="composer-send-label">{blockingRun && blockingRun.status !== "waiting_user" ? "停止" : "发送"}</span>
             </button>
           </div>
-          <small className="composer-hint">{composerTarget ? "这条内容会发送到指定任务" : "规划会在后台继续，你可以放心离开或接着聊天"}</small>
+          <small className="composer-hint">{blockingRun?.status === "waiting_user" ? "这条回答会继续当前任务，不会创建新的 Run" : blockingRun ? "当前对话会在任务完成后恢复输入" : revisionSubmitting ? "正在提交这次行程修改…" : composerTarget ? "这条内容会发送到指定任务" : "可以继续描述你的旅行想法"}</small>
           </>}
         </div>
       </main>
@@ -617,11 +707,87 @@ function ChatPage({ currentUsername, onRequestLogin, onOpenPlan }) {
   );
 }
 
+function firstDayFirstPoiPhoto(data) {
+  const timeline = data?.plan?.days?.[0]?.timeline;
+  if (!Array.isArray(timeline)) return null;
+  const poi = timeline.find(item => item?.type === "attraction");
+  const photo = poi?.photo;
+  return typeof photo === "string" && photo.trim() ? photo.trim() : null;
+}
+
+/* 历史列表只携带摘要；封面进入视口后从完整行程接口读取 Day 1 的第一个景点图。 */
+function ItineraryCover({ planId, className }) {
+  const coverRef = React.useRef(null);
+  const [photo, setPhoto] = React.useState(null);
+
+  React.useEffect(() => {
+    const node = coverRef.current;
+    if (!node) return undefined;
+    let cancelled = false;
+    const loadPhoto = () => {
+      getHistoryItem(planId)
+        .then(data => { if (!cancelled) setPhoto(firstDayFirstPoiPhoto(data)); })
+        .catch(() => { if (!cancelled) setPhoto(null); });
+    };
+    if (typeof IntersectionObserver === "undefined") { loadPhoto(); return () => { cancelled = true; }; }
+    const observer = new IntersectionObserver(entries => {
+      if (entries.some(entry => entry.isIntersecting)) {
+        observer.disconnect();
+        loadPhoto();
+      }
+    }, { rootMargin: "160px 0px" });
+    observer.observe(node);
+    return () => { cancelled = true; observer.disconnect(); };
+  }, [planId]);
+
+  return <span ref={coverRef} className={`${className}${photo ? " has-photo" : ""}`}
+    style={photo ? { backgroundImage: `url('${photo}')` } : undefined} aria-hidden="true" />;
+}
+
+function JourneyPlans({ sectionRef, sentinelRef, plans, loading, loadingMore, error, hasMore, onRetry, onOpen }) {
+  const formatDates = trip => {
+    const start = trip.start_date ? trip.start_date.replace(/-/g, ".").slice(5) : "";
+    const end = trip.end_date ? trip.end_date.replace(/-/g, ".").slice(5) : "";
+    return start && end ? `${start} — ${end}` : (trip.created_at || "").slice(0, 10).replace(/-/g, ".");
+  };
+  const dayCount = trip => trip.days_count || (trip.start_date && trip.end_date
+    ? Math.ceil((new Date(trip.end_date) - new Date(trip.start_date)) / 86400000) + 1 : 1);
+
+  return (
+    <section ref={sectionRef} className="journey-plans" id="my-plans" aria-labelledby="my-plans-title">
+      <div className="journey-plans-head">
+        <div><span>MY PLANS</span><h2 id="my-plans-title">我的计划</h2></div>
+        {!loading && <p>{plans.length ? "每一次出发，都留有下一次想念。" : "你的下一段旅程，会从这里开始。"}</p>}
+      </div>
+      {loading && <div className="journey-plan-skeletons" aria-label="正在加载历史行程">{[1, 2, 3].map(item => <i key={item} />)}</div>}
+      {!loading && !plans.length && !error && <div className="journey-plans-empty">暂时还没有保存的行程，和途途聊聊下一次想去哪里吧。</div>}
+      {!!plans.length && <div className="journey-plan-grid">
+        {plans.map(trip => {
+          const destination = trip.destination || "旅行";
+          const days = dayCount(trip);
+          return <button className="journey-plan-card" key={trip.id} onClick={() => onOpen?.(trip.id)} aria-label={`打开${destination}行程`}>
+            <ItineraryCover className="journey-plan-photo" planId={trip.id} />
+            <span className="journey-plan-body">
+              <span className="journey-plan-meta"><i>{trip.parent_id ? `修改版 V${trip.version}` : "旅行计划"}</i><em>{days} 天</em></span>
+              <strong>{destination}{days ? ` · ${days}日游` : ""}</strong>
+              <small>{formatDates(trip) || "日期待定"}</small>
+              <span className="journey-plan-open">查看行程 <UiIcon name="arrow-right" size={14} /></span>
+            </span>
+          </button>;
+        })}
+      </div>}
+      {error && <div className="journey-plans-error" role="alert">{error}<button onClick={onRetry}>重新加载</button></div>}
+      {hasMore && !error && <div ref={sentinelRef} className="journey-plans-sentinel" aria-live="polite">{loadingMore ? "正在展开更多计划…" : "继续向下浏览更多计划"}</div>}
+      {!loading && !hasMore && plans.length > 6 && <div className="journey-plans-end">已经看到全部计划</div>}
+    </section>
+  );
+}
+
 function ActivityTimeline({
   items, currentUsername,
   onBriefUpdate, onBriefSubmit, onBriefDiscard,
   onRunCancel, onRunRetry, onRunOpen, onRunModify, onRunReply, onChatRetry,
-  registerRunNode,
+  registerRunNode, onItineraryOpen,
 }) {
   return items.map(item => {
     if (item.type === "message") {
@@ -629,11 +795,19 @@ function ActivityTimeline({
       return (
         <article key={item.key} className={`chat-message ${message.role}`} aria-label={message.role === "user" ? "你的消息" : "途途的回复"}>
           <div className="chat-avatar" aria-hidden="true">{message.role === "user" ? currentUsername?.slice(-1) : "途"}</div>
-          <div className="chat-bubble">
-            {message.role === "assistant"
-              ? <ChatMessageContent content={message.content} />
-              : message.content}
-            {message.streaming && <span className="typing-caret" aria-hidden="true" />}
+          <div className="chat-message-stack">
+            <div className="chat-bubble">
+              {message.role === "assistant"
+                ? <ChatMessageContent content={message.content} />
+                : message.content}
+              {message.streaming && <span className="typing-caret" aria-hidden="true" />}
+              {!message.streaming && <MessageArtifacts artifacts={message.artifacts} onOpen={onItineraryOpen} />}
+              {!message.streaming && message.role === "assistant" && message.related_itinerary_id && (
+                <div className="final-itinerary-actions">
+                  <button onClick={() => onItineraryOpen?.(message.related_itinerary_id)}>打开完整行程</button>
+                </div>
+              )}
+            </div>
           </div>
         </article>
       );
@@ -651,12 +825,14 @@ function ActivityTimeline({
     }
     if (item.type === "chat_thinking") {
       const isQueued = item.entity.status === "queued";
+      const activity = item.entity.agent_activity;
+      const activityLabel = activity?.label;
       return (
         <article key={item.key} className="chat-thinking" role="status" aria-live="polite">
           <div className="chat-avatar" aria-hidden="true">途</div>
           <div className="chat-thinking-body">
-            <span className="chat-thinking-kicker">{isQueued ? "收到，正在接住这句话" : "途途正在思考"}</span>
-            <strong>{isQueued ? "正在准备理解你的旅行想法…" : "正在梳理目的地、日期和你的偏好…"}</strong>
+            <span className="chat-thinking-kicker">{isQueued ? "收到，正在接住这句话" : activityLabel ? "途途正在为你处理" : "途途正在思考"}</span>
+            <strong>{isQueued ? "正在准备理解你的旅行想法…" : activityLabel || "正在梳理目的地、日期和你的偏好…"}</strong>
             <span className="chat-thinking-dots" aria-hidden="true"><i /><i /><i /></span>
           </div>
         </article>
@@ -668,13 +844,15 @@ function ActivityTimeline({
         <section key={item.key} className="chat-understanding-failure" role="alert">
           <strong>这条消息暂时没有理解成功</strong>
           <p>{run.error_public?.message || "请重试"}</p>
-          <button onClick={() => onChatRetry(run)}>重试这条消息</button>
+          {run.error_public?.retryable !== false && (
+            <button onClick={() => onChatRetry(run)}>重试这条消息</button>
+          )}
         </section>
       );
     }
     const run = item.entity;
     return (
-      <RuntimeRunCard
+      <PlanningProgressTimeline
         key={item.key}
         refNode={node => registerRunNode(run.id, node)}
         run={run}
@@ -686,6 +864,93 @@ function ActivityTimeline({
       />
     );
   });
+}
+
+function PlanningProgressTimeline({ run, onCancel, onRetry, onOpen, onModify, onReply, refNode }) {
+  const [expanded, setExpanded] = React.useState(true);
+  const [now, setNow] = React.useState(Date.now());
+  const [busy, setBusy] = React.useState("");
+  const active = ["queued", "running", "waiting_user"].includes(run.status);
+  React.useEffect(() => {
+    if (!active) return undefined;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [active]);
+  const started = Date.parse(run.created_at || run.queued_at || run.updated_at || "") || now;
+  const seconds = Math.max(0, Math.floor((now - started) / 1000));
+  const stageIndex = run.status === "succeeded" ? JOURNEY_STEPS.length
+    : Math.max(0, Number(run.journey_step_index ?? 0));
+  const stateTitle = run.status === "succeeded" ? `深度思考完成 · ${seconds || 1}s`
+    : run.status === "waiting_user" ? (run.kind === "chat" ? "还需要你补充一点信息" : "规划需要你补充信息")
+    : run.status === "failed" ? "这次规划暂未完成"
+    : run.status === "cancelled" ? "规划已停止"
+    : `正在深度思考… ${seconds}s`;
+  const steps = JOURNEY_STEPS.map((step, index) => ({
+    ...step,
+    status: run.status === "succeeded" || index < stageIndex ? "done"
+      : active && index === stageIndex ? "active" : "pending",
+  }));
+  const action = async (name, callback) => {
+    if (busy) return;
+    setBusy(name);
+    try { await callback(); } finally { setBusy(""); }
+  };
+  return <section ref={refNode} data-run-id={run.id} className={`planning-thought status-${run.status}`} aria-live="polite">
+    <button className="planning-thought-head" onClick={() => setExpanded(value => !value)} aria-expanded={expanded}>
+      <span><i className={active ? "is-active" : ""} aria-hidden="true" />{stateTitle}</span><b aria-hidden="true"><UiIcon name={expanded ? "chevron-up" : "chevron-down"} size={16} /></b>
+    </button>
+    {run.status === "waiting_user" && run.pending_interaction?.question && (
+      <p className="planning-thought-question">{run.pending_interaction.question}</p>
+    )}
+    {expanded && (run.kind !== "chat" || run.journey_step_index !== undefined) && <div className="planning-thought-steps" aria-label="规划进度">
+      {steps.map((step, index) => <div key={step.key} className={`planning-thought-step ${step.status}`}>
+        <i aria-hidden="true">{step.status === "done" ? <UiIcon name="check" size={11} strokeWidth={2.5} /> : step.status === "active" ? "•" : ""}</i>
+        <div><strong>{step.label}</strong><small>{step.status === "active" && run.latest_progress_label ? run.latest_progress_label : step.status === "done" ? (step.doneDetail || "已完成") : step.detail}</small></div>
+        {index < steps.length - 1 && <em aria-hidden="true" />}
+      </div>)}
+    </div>}
+    {run.status === "waiting_user" && <span className="planning-thought-reply-hint">请在下方输入框回答</span>}
+    {active && <button className="planning-thought-text-action" disabled={!!busy} onClick={() => action("cancel", onCancel)}>{busy === "cancel" ? "正在停止…" : "停止规划"}</button>}
+    {["failed", "cancelled"].includes(run.status) && <button className="planning-thought-action" disabled={!!busy} onClick={() => action("retry", onRetry)}>{busy === "retry" ? "正在重试…" : "使用原需求再试一次"}</button>}
+  </section>;
+}
+
+function MessageArtifacts({ artifacts, onOpen }) {
+  const collections = (Array.isArray(artifacts) ? artifacts : [])
+    .filter(item => item?.type === "itinerary_collection")
+    .slice(0, 5);
+  if (!collections.length) return null;
+  return (
+    <div className="message-artifacts" aria-label="保存的旅行方案">
+      {collections.map((collection, collectionIndex) => (
+        <section className="itinerary-collection" key={`${collection.type}-${collectionIndex}`}>
+          <div className="itinerary-collection-head">
+            <strong>{collection.title || "找到这些保存的方案"}</strong>
+            {collection.match_kind === "near" && <span>相近结果</span>}
+          </div>
+          <div className="itinerary-card-grid">
+            {(collection.items || []).slice(0, 5).map(card => (
+              <button
+                type="button"
+                className="saved-itinerary-card"
+                key={card.itinerary_id}
+                onClick={() => onOpen?.(card.itinerary_id)}
+                aria-label={`查看${card.destination || "旅行"}${card.duration_days ? `${card.duration_days}日` : ""}完整方案`}
+              >
+                <span className="saved-itinerary-kicker">
+                  {card.is_modified ? `修改版 V${card.version}` : "保存的方案"}
+                </span>
+                <strong>{card.destination || "旅行方案"}{card.duration_days ? ` · ${card.duration_days}日` : ""}</strong>
+                <small>{card.start_date && card.end_date ? `${card.start_date} — ${card.end_date}` : "日期未固定"}</small>
+                {!!card.highlights?.length && <span className="saved-itinerary-highlights">{card.highlights.slice(0, 3).join(" · ")}</span>}
+                <span className="saved-itinerary-open">查看完整方案 <UiIcon name="arrow-right" size={14} /></span>
+              </button>
+            ))}
+          </div>
+        </section>
+      ))}
+    </div>
+  );
 }
 
 function ChatMessageContent({ content }) {
@@ -723,687 +988,128 @@ function ChatMessageContent({ content }) {
   );
 }
 
-function PlanningBriefCard({ brief, onUpdate, onSubmit, onDiscard }) {
-  const [editing, setEditing] = React.useState(false);
-  const [form, setForm] = React.useState(brief.data || {});
-  const [busy, setBusy] = React.useState("");
-  const [localError, setLocalError] = React.useState("");
-  const editable = ["collecting", "ready"].includes(brief.status);
-  React.useEffect(() => setForm(brief.data || {}), [brief.data]);
-  const constraints = form.trip_constraints || [];
-  const excludedIds = form.excluded_memory_fact_ids || [];
-  const memory = brief.memory_context || { status: "none", applied_facts: [], excluded_facts: [] };
-  const makeConstraint = () => ({
-    id: (window.crypto?.randomUUID?.() || `constraint-${Date.now()}`),
-    category: "other_travel_preference", value_text: "", polarity: "fact", source: "manual",
-  });
-  const persistForm = async () => {
-    const updated = await updatePlanningBrief(brief.id, {
-      destination: form.destination ?? "",
-      start_date: form.start_date ?? "",
-      end_date: form.end_date ?? "",
-      days: form.days === "" ? null : Number(form.days),
-      trip_budget: form.trip_budget ?? form.budget ?? "",
-      trip_constraints: constraints.filter(item => item.value_text?.trim()).map(item => ({
-        ...item, value_text: item.value_text.trim(), source: item.source || "manual",
-      })),
-      excluded_memory_fact_ids: excludedIds,
-    });
-    onUpdate(updated);
-    return updated;
-  };
-  const save = async () => {
-    setBusy("save"); setLocalError("");
-    try {
-      await persistForm();
-      setEditing(false);
-    } catch (e) {
-      setLocalError(e.message || "需求保存失败");
-    } finally {
-      setBusy("");
-    }
-  };
-  const saveAndSubmit = async () => {
-    if (busy) return;
-    setBusy("submit"); setLocalError("");
-    try {
-      const current = editing ? await persistForm() : brief;
-      if (current.status !== "ready") {
-        setEditing(true);
-        setLocalError("信息尚未完整，请补齐提示的内容后再开始规划。");
-        return;
-      }
-      setEditing(false);
-      await onSubmit(current);
-    } catch (e) {
-      setLocalError(e.message || "保存或创建规划任务失败，请重试");
-    } finally {
-      setBusy("");
-    }
-  };
-  const fields = [
-    ["destination", "目的地", "text"],
-    ["start_date", "开始日期", "date"],
-    ["end_date", "结束日期", "date"],
-    ["days", "天数", "number"],
-    ["trip_budget", "本次预算", "text"],
+function PlanningBriefCard({ brief, onSubmit }) {
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState("");
+  if (brief.status !== "ready") return null;
+  const data = brief.data || {};
+  const constraints = data.trip_constraints || [];
+  const first = category => constraints.find(item => item.category === category)?.value_text;
+  const details = [
+    ["location", "目的地", data.destination || "待确认"],
+    ["clock", "日期", data.start_date && data.end_date ? `${data.start_date.slice(5)} — ${data.end_date.slice(5)}` : "待确认"],
+    ["navigation", "节奏", first("travel_pace") || data.habit_preference || "舒适均衡"],
+    ["heart", "同行", first("companion_context") || "同行情况待确认"],
   ];
-  const view = ChatState.briefViewModel(brief);
-  const runAction = async (name, action) => {
+  const tags = constraints
+    .filter(item => !["travel_pace", "companion_context"].includes(item.category))
+    .map(item => item.value_text).filter(Boolean).slice(0, 3);
+  const submit = async () => {
     if (busy) return;
-    setBusy(name); setLocalError("");
-    try { await action(); }
-    catch (e) { setLocalError(e.message || "操作失败，请重试"); }
-    finally { setBusy(""); }
+    setBusy(true); setError("");
+    try { await onSubmit(brief); }
+    catch (e) { setError(e.message || "创建规划任务失败，请重试"); }
+    finally { setBusy(false); }
   };
-  const updateMemoryExclusions = async factId => {
-    const nextIds = excludedIds.includes(factId)
-      ? excludedIds.filter(id => id !== factId)
-      : [...excludedIds, factId];
-    setBusy(`memory-${factId}`); setLocalError("");
-    try {
-      const updated = await updatePlanningBrief(brief.id, { excluded_memory_fact_ids: nextIds });
-      onUpdate(updated);
-    } catch (e) { setLocalError(e.message || "本次记忆设置保存失败"); }
-    finally { setBusy(""); }
-  };
-  const refreshMemory = async () => {
-    setBusy("memory-refresh"); setLocalError("");
-    try { onUpdate(await refreshPlanningBriefMemory(brief.id)); }
-    catch (e) { setLocalError(e.message || "长期记忆重新匹配失败"); }
-    finally { setBusy(""); }
-  };
-  return (
-    <section className={`brief-card ${brief.status}`} aria-labelledby={`brief-title-${brief.id}`}>
-      <div className="brief-head">
-        <div>
-          <span>TRIP NOTE</span>
-          <strong id={`brief-title-${brief.id}`}>这趟旅行，我理解的是</strong>
-        </div>
-        <em>{ChatState.planningBriefStatusLabel(brief.status)}</em>
-        {editable && (
-          <button disabled={!!busy} onClick={() => setEditing(value => !value)}>{editing ? "收起编辑" : "调整"}</button>
-        )}
-      </div>
-      {editing ? (
-        <div className="brief-grid">
-          {fields.map(([key, label, type]) => (
-            <label key={key}>{label}
-              <input
-                type={type}
-                value={form[key] || ""}
-                onChange={e => setForm({ ...form, [key]: e.target.value })}
-              />
-            </label>
-          ))}
-          <div className="brief-constraint-editor">
-            <div className="brief-constraint-title"><strong>本次旅行要求</strong><span>来自当前对话或你的手动调整</span></div>
-            {constraints.map((item, index) => (
-              <div className="brief-constraint-row" key={item.id || index}>
-                <select value={item.category} onChange={e => setForm({ ...form, trip_constraints: constraints.map((entry, i) => i === index ? { ...entry, category: e.target.value } : entry) })}>
-                  {Object.entries(MEMORY_CATEGORY_LABELS).filter(([key]) => key !== "destination_history").map(([key, label]) => <option key={key} value={key}>{label}</option>)}
-                </select>
-                <select value={item.polarity || "fact"} onChange={e => setForm({ ...form, trip_constraints: constraints.map((entry, i) => i === index ? { ...entry, polarity: e.target.value } : entry) })}>
-                  {Object.entries(MEMORY_POLARITY_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
-                </select>
-                <input value={item.value_text || ""} placeholder="例如：每天最多安排三个景点" onChange={e => setForm({ ...form, trip_constraints: constraints.map((entry, i) => i === index ? { ...entry, value_text: e.target.value } : entry) })} />
-                <button type="button" aria-label="移除这条本次要求" onClick={() => setForm({ ...form, trip_constraints: constraints.filter((_, i) => i !== index) })}>×</button>
-              </div>
-            ))}
-            <button type="button" className="brief-add-constraint" onClick={() => setForm({ ...form, trip_constraints: [...constraints, makeConstraint()] })}>＋ 添加一条本次要求</button>
-          </div>
-          <button className="brief-save" disabled={!!busy} onClick={save}>{busy === "save" ? "保存中…" : "保存这份理解"}</button>
-        </div>
-      ) : (
-        <div className="brief-summary">
-          <div className="brief-destination">
-            <span>目的地</span>
-            <strong>{view.destination}</strong>
-          </div>
-          <div className="brief-date">
-            <span>出行时间</span>
-            <strong>{view.dateLabel}</strong>
-          </div>
-          {view.preferences.length > 0 && (
-            <dl className="brief-preferences">
-              {view.preferences.map(([label, value]) => <div key={`${label}:${value}`}><dt>{label}</dt><dd>{value}</dd></div>)}
-            </dl>
-          )}
-          {view.usesDefaults && (
-            <p className="brief-defaults">没有特别说明的预算、餐饮或节奏偏好，将采用舒适均衡的推荐方案。</p>
-          )}
-        </div>
-      )}
-      {(memory.applied_facts?.length > 0 || memory.excluded_facts?.length > 0 || memory.status === "failed") && (
-        <div className="brief-memory-panel">
-          <div className="brief-memory-head">
-            <div><span>LONG-TERM MEMORY</span><strong>这次自动带入的旅行记忆</strong><small>记忆版本 {memory.revision || 0}</small></div>
-            {editable && <button disabled={!!busy} onClick={refreshMemory}>{busy === "memory-refresh" ? "匹配中…" : "重新匹配"}</button>}
-          </div>
-          {memory.status === "failed" && <p className="brief-memory-warning">长期记忆暂时没有匹配成功。本次明确需求仍会保留，你可以重试或直接继续规划。</p>}
-          {!!memory.applied_facts?.length && <div className="brief-memory-list">{memory.applied_facts.map(fact => {
-            const presentation = ChatState.memoryFactPresentation(fact);
-            return (
-              <div className={`brief-memory-fact polarity-${presentation.tone}`} key={fact.fact_id}>
-                <div className="brief-memory-copy">
-                  <span>{MEMORY_CATEGORY_LABELS[fact.category] || "旅行记忆"} · {MEMORY_SCOPE_LABELS[fact.scope_type] || fact.scope_type}</span>
-                  <div className="brief-memory-decision"><b>{presentation.badge}</b><strong>{fact.value_text}</strong></div>
-                  <small>{presentation.effect}</small>
-                </div>
-                <em>来自长期记忆</em>
-                {editable && <button disabled={!!busy} aria-label={`${presentation.excludeAction}：${fact.value_text}`} onClick={() => updateMemoryExclusions(fact.fact_id)}>{presentation.excludeAction}</button>}
-              </div>
-            );
-          })}</div>}
-          {!!memory.excluded_facts?.length && <details className="brief-memory-excluded"><summary>本次已停用的记忆（{memory.excluded_facts.length}）</summary>{memory.excluded_facts.map(fact => {
-            const presentation = ChatState.memoryFactPresentation(fact);
-            return (
-              <div key={fact.fact_id}>
-                <span><b>{presentation.badge}</b>{fact.value_text}</span>
-                {editable && <button disabled={!!busy} aria-label={`${presentation.restoreAction}：${fact.value_text}`} onClick={() => updateMemoryExclusions(fact.fact_id)}>{presentation.restoreAction}</button>}
-              </div>
-            );
-          })}</details>}
-          <p className="brief-memory-footnote">这里只影响本次旅行；如需彻底忘记，请前往“我的画像”。</p>
-        </div>
-      )}
-      {brief.missing_fields?.length > 0 && (
-        <div className="brief-missing">
-          <span>下一步只需要</span>
-          <strong>{view.missing.join("、")}</strong>
-        </div>
-      )}
-      {localError && <p className="brief-error" role="alert">{localError}</p>}
-      <div className="brief-actions">
-        {editable ? (
-          <>
-            <button className="brief-discard" disabled={!!busy}
-              onClick={() => runAction("discard", onDiscard)}>
-              {busy === "discard" ? "清除中…" : "清除这份需求"}
-            </button>
-            <button className="brief-submit" disabled={(!editing && brief.status !== "ready") || !!busy}
-              onClick={saveAndSubmit}>
-              {busy === "submit" ? "正在保存并创建任务…" : editing ? "保存并开始规划" : "确认，开始规划"}
-            </button>
-          </>
-        ) : (
-          <span className="brief-submitted-note">正式规划任务已创建</span>
-        )}
-      </div>
-    </section>
-  );
-}
-
-function StructuredInteractionInput({ interaction, disabled, onSubmit }) {
-  const schema = interaction?.input_schema || {};
-  const question = interaction?.question || "";
-  const inputKind = ChatState.interactionInputKind(interaction);
-  const isDateRange = inputKind === "date-range";
-  const choices = Array.isArray(schema.enum) ? schema.enum : [];
-  const multiChoices = schema.type === "array" && Array.isArray(schema.items?.enum)
-    ? schema.items.enum : [];
-  const [text, setText] = React.useState("");
-  const [startDate, setStartDate] = React.useState("");
-  const [endDate, setEndDate] = React.useState("");
-  const [selected, setSelected] = React.useState([]);
-  const [inputError, setInputError] = React.useState("");
-  const submit = () => {
-    let value = text.trim();
-    if (isDateRange) {
-      if (!startDate || !endDate) { setInputError("请选择开始和结束日期"); return; }
-      if (endDate < startDate) { setInputError("结束日期不能早于开始日期"); return; }
-      value = `${startDate} 至 ${endDate}`;
-    } else if (choices.length) {
-      if (!text) { setInputError("请选择一个选项"); return; }
-      value = text;
-    } else if (multiChoices.length) {
-      if (!selected.length) { setInputError("请至少选择一项"); return; }
-      value = selected;
-    }
-    if (!value || (Array.isArray(value) && !value.length)) { setInputError("请补充信息后继续"); return; }
-    setInputError("");
-    onSubmit(value);
-  };
-  return (
-    <div className="interaction-input">
-      {isDateRange ? (
-        <div className="date-range-input">
-          <label>开始日期<input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} /></label>
-          <span aria-hidden="true">→</span>
-          <label>结束日期<input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} /></label>
-        </div>
-      ) : choices.length ? (
-        <div className="choice-input" role="radiogroup" aria-label={question}>
-          {choices.map(choice => (
-            <label key={choice}><input type="radio" name={`interaction-${interaction.interaction_id}`}
-              checked={text === choice} onChange={() => setText(choice)} />{choice}</label>
-          ))}
-        </div>
-      ) : multiChoices.length ? (
-        <div className="choice-input" aria-label={question}>
-          {multiChoices.map(choice => (
-            <label key={choice}><input type="checkbox" checked={selected.includes(choice)}
-              onChange={() => setSelected(values => values.includes(choice) ? values.filter(item => item !== choice) : [...values, choice])} />{choice}</label>
-          ))}
-        </div>
-      ) : (
-        <textarea value={text} onChange={e => setText(e.target.value)} placeholder="补充信息后继续" aria-label="任务所需补充信息" />
-      )}
-      {inputError && <p className="interaction-error" role="alert">{inputError}</p>}
-      <button className="run-primary" disabled={disabled} onClick={submit}>{disabled ? "提交中…" : "提交并继续规划"}</button>
-    </div>
-  );
-}
-
-function RuntimeRunCard({ run, onCancel, onRetry, onOpen, onModify, onReply, refNode }) {
-  const [busy, setBusy] = React.useState("");
-  const [resultSummary, setResultSummary] = React.useState(null);
-  const [localError, setLocalError] = React.useState("");
-  const presentation = ChatState.RUN_PRESENTATIONS[run.status] || {
-    label: run.status, copy: "", primaryAction: null,
-  };
-  const interaction = run.pending_interaction;
-  const target = run.request_snapshot?.destination
-    || (run.kind === "revision" ? "已有行程" : "新的旅行");
-  const journeyIndex = run.status === "succeeded"
-    ? JOURNEY_STEPS.length - 1
-    : Math.max(-1, Number(run.journey_step_index ?? -1));
-  const journeyActiveNode = run.status === "succeeded"
-    ? null
-    : JOURNEY_STEPS[journeyIndex]?.key;
-  const journeyDoneNodes = run.status === "succeeded"
-    ? JOURNEY_STEPS.map(step => step.key)
-    : JOURNEY_STEPS.slice(0, Math.max(0, journeyIndex)).map(step => step.key);
-  const planningHeadings = {
-    queued: `正在准备 ${target} 的规划`,
-    running: `正在为你规划 ${target} 之旅`,
-    waiting_user: `${target} 的规划等你补充`,
-    succeeded: `${target} 的行程已经准备好`,
-    failed: `${target} 的规划暂未完成`,
-    cancelled: `${target} 的规划已停止`,
-  };
-  const revisionHeadings = {
-    queued: `正在准备修改 ${target} 行程`,
-    running: `正在修改 ${target} 行程`,
-    waiting_user: `${target} 行程修改等你补充`,
-    succeeded: `${target} 的新版行程已准备好`,
-    failed: `${target} 行程修改暂未完成`,
-    cancelled: `${target} 行程修改已停止`,
-  };
-  const heading = (run.kind === "revision" ? revisionHeadings : planningHeadings)[run.status]
-    || `${target} · ${presentation.label}`;
-  React.useEffect(() => {
-    if (run.status !== "succeeded" || !run.result_itinerary_id || resultSummary) return;
-    let alive = true;
-    getHistoryItem(run.result_itinerary_id).then(data => {
-      if (!alive || !data) return;
-      const plan = data.plan || data;
-      setResultSummary({
-        destination: plan.destination || run.request_snapshot?.destination || "旅行行程",
-        days: Array.isArray(plan.days) ? plan.days.length : (plan.days || run.request_snapshot?.days),
-        startDate: plan.travel_start_date || plan.start_date || run.request_snapshot?.start_date,
-        endDate: plan.travel_end_date || plan.end_date || run.request_snapshot?.end_date,
-      });
-    }).catch(() => {});
-    return () => { alive = false; };
-  }, [run.status, run.result_itinerary_id]); // eslint-disable-line
-  const action = async (name, fn) => {
-    if (busy) return;
-    setBusy(name); setLocalError("");
-    try { await fn(); }
-    catch (e) { setLocalError(e.message || "操作失败，请重试"); }
-    finally { setBusy(""); }
-  };
-  return (
-    <section ref={refNode} data-run-id={run.id} tabIndex="-1"
-      className={`run-card status-${run.status}`} aria-labelledby={`run-title-${run.id}`}>
-      <div className="run-journey-head">
-        <div>
-          <span>{run.kind === "revision" ? "ITINERARY REVISION" : "MULTI-AGENT JOURNEY"}</span>
-          <h3 id={`run-title-${run.id}`}>{heading}</h3>
-        </div>
-        <strong className="run-status-badge">{presentation.label}</strong>
-      </div>
-      <p className="run-status-copy">{presentation.copy}</p>
-      {["queued", "running", "waiting_user", "succeeded"].includes(run.status) && (
-        <div className="run-journey-progress" aria-label="规划进度">
-          <div className="run-journey-scene" aria-hidden="true">
-            <JourneyLoading
-              steps={JOURNEY_STEPS}
-              activeNode={journeyActiveNode}
-              doneNodes={journeyDoneNodes}
-            />
-          </div>
-          <div className="run-journey-steps">
-            {JOURNEY_STEPS.map((step, index) => {
-              const complete = run.status === "succeeded" || index < journeyIndex;
-              const active = run.status !== "succeeded" && index === journeyIndex;
-              return (
-                <div key={step.key} className={`run-journey-step ${complete ? "done" : ""} ${active ? "active" : ""}`}>
-                  <span className="run-journey-marker">{complete ? "✓" : index + 1}</span>
-                  <span>
-                    <strong>{step.label}</strong>
-                    <small>{
-                      complete
-                        ? (step.doneDetail || step.detail)
-                        : active && run.latest_progress_label
-                          ? run.latest_progress_label
-                          : step.detail
-                    }</small>
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-      {run.request_snapshot?.related_itinerary_id && (
-        <p className="run-context">这是一项针对已有行程的独立修改，不会覆盖原版本。</p>
-      )}
-      {run.retry_of_run_id && <p className="run-context">这是上一次未完成任务的新尝试，原任务记录仍然保留。</p>}
-      {run.error_public?.message && <p className="run-error" role="alert">{run.error_public.message}</p>}
-      {run.status === "waiting_user" && interaction?.question && (
-        <div className="run-question">
-          <span>规划需要确认一件事</span>
-          <strong>{interaction.question}</strong>
-          <StructuredInteractionInput interaction={interaction} disabled={busy === "resume"}
-            onSubmit={value => action("resume", async () => {
-              await resumeRuntimeRun(run.id, interaction.interaction_id, value);
-            })} />
-          <button className="run-inline-reply" onClick={onReply}>也可以在下方输入框回复</button>
-        </div>
-      )}
-      {run.status === "succeeded" && (
-        <div className="run-result-preview">
-          <span>YOUR ITINERARY</span>
-          <strong>{resultSummary?.destination || target}</strong>
-          <p>
-            {resultSummary?.days ? `${resultSummary.days} 天` : "完整行程"}
-            {resultSummary?.startDate && resultSummary?.endDate ? ` · ${resultSummary.startDate} — ${resultSummary.endDate}` : ""}
-          </p>
-          <small>路线、开放时间、餐饮与游玩提示已整理</small>
-        </div>
-      )}
-      {localError && <p className="run-error" role="alert">{localError}</p>}
-      <div className="run-actions">
-        {["queued", "running", "waiting_user"].includes(run.status) && (
-          <button className="run-secondary" disabled={!!busy} onClick={() => action("cancel", onCancel)}>
-            {busy === "cancel" ? "正在停止…" : "停止规划"}
-          </button>
-        )}
-        {["failed", "cancelled"].includes(run.status) && (
-          <button className="run-primary" disabled={!!busy} onClick={() => action("retry", onRetry)}>
-            {busy === "retry" ? "正在创建新任务…" : "使用原需求再试一次"}
-          </button>
-        )}
-        {run.status === "succeeded" && run.result_itinerary_id && (
-          <>
-            <button className="run-secondary" onClick={onModify}>继续修改</button>
-            <button className="run-primary" onClick={onOpen}>打开完整行程</button>
-          </>
-        )}
-      </div>
-    </section>
-  );
-}
-
-/* ── 主页（新建规划） ─────────────────────────── */
-function PlanPage({ onRequestLogin, currentUsername, onPhaseChange, onPlanReady, modifyTrigger, onCancelModify, onManageProfile }) {
-  const [phase, setPhase] = React.useState("idle");
-
-  React.useEffect(() => { onPhaseChange?.(phase); }, [phase]); // eslint-disable-line
-  const [query, setQuery] = React.useState("");
-  const [planId, setPlanId] = React.useState(null);
-  const [logs, setLogs] = React.useState([]);
-  const [activeNode, setActiveNode] = React.useState(null);
-  const [doneNodes, setDoneNodes] = React.useState([]);
-  const [stageLabel, setStageLabel] = React.useState("");
-  const [missingFields, setMissingFields] = React.useState([]);
-  const [threadId, setThreadId] = React.useState(null);
-  const [concernModal, setConcernModal] = React.useState(null);
-  const [pendingModState, setPendingModState] = React.useState(null);
-  const [errMsg, setErrMsg] = React.useState("");
-  const [profile, setProfile] = React.useState(null);
-  const abortRef = React.useRef(null);
-  // 旅程已走到的最远站点下标：planner⇄reviewer / planner⇄time_check 循环时只前进不后退
-  const maxStepRef = React.useRef(-1);
-
-  React.useEffect(() => () => abortRef.current && abortRef.current(), []);
-
-  // 拉取用户画像，在新建规划页展示，引导用户参考自身偏好斟酌措辞
-  // 依赖 currentUsername：用户登录后立即刷新展示，登出则清空（无需重新进入本页）
-  React.useEffect(() => {
-    if (!getAuth()) { setProfile(null); return; }
-    getProfile().then(setProfile).catch(() => {});
-  }, [currentUsername]);
-
-  // 由 App 传入修改触发器，在挂载时（planKey bump 后）立即执行修改流
-  React.useEffect(() => {
-    if (modifyTrigger) {
-      doStream({ query: modifyTrigger.query, plan_id: modifyTrigger.planId, modification_notes: modifyTrigger.query });
-    }
-  }, []); // eslint-disable-line
-
-  const handleStage = (ev) => {
-    setLogs(prev => [...prev, ev.label || ev.node]);
-    setStageLabel(ev.label || "");
-    const key = NODE_TO_STEP[ev.node] || ev.node;
-    const idx = JOURNEY_STEPS.findIndex(s => s.key === key);
-    if (idx < 0 || idx <= maxStepRef.current) return; // 未知节点或回头路（多轮循环）不动小人
-    maxStepRef.current = idx;
-    setActiveNode(key);
-    setDoneNodes(JOURNEY_STEPS.slice(0, idx).map(s => s.key));
-  };
-
-  const resetJourney = () => {
-    maxStepRef.current = -1;
-    setActiveNode(null);
-    setDoneNodes([]);
-    setStageLabel("");
-  };
-
-  const doStream = (body) => {
-    setPhase("loading");
-    const isModify = !!(body.plan_id && body.modification_notes);
-    if (isModify) {
-      const preDone = JOURNEY_STEPS.slice(0, 3).map(s => s.key);
-      maxStepRef.current = 3;
-      setDoneNodes(preDone);
-      setActiveNode("plan_review");
-      setStageLabel("");
-      setLogs([]);
-    } else {
-      resetJourney();
-    }
-    setErrMsg("");
-
-    streamPlan(body, {
-      onAbort: (fn) => { abortRef.current = fn; },
-      onStage: handleStage,
-      onResult: (ev) => {
-        const adapted = adaptPlan(ev.plan, currentUsername);
-        adapted.logs = ev.history || logs;
-        setPlanId(ev.plan_id);
-        setDoneNodes(JOURNEY_STEPS.map(s => s.key));
-        setTimeout(() => { onPlanReady?.(adapted, ev.plan_id); setPhase("idle"); }, 600);
-      },
-      onMissingFields: (ev) => {
-        setMissingFields(ev.missing_fields || []);
-        setThreadId(ev.thread_id || null);
-        setPhase("idle");
-      },
-      onWarning: (ev) => {
-        setConcernModal({
-          concern: ev.concern,
-          pending_id: ev.pending_id,
-          parent_plan_id: ev.parent_plan_id || planId,
-        });
-        setPhase("idle");
-      },
-      onError: (msg) => {
-        setErrMsg(msg);
-        setPhase("idle");
-      },
-    });
-  };
-
-  const startPlan = () => {
-    if (!getAuth()) { onRequestLogin && onRequestLogin(); return; }
-    const q = threadId ? (query + " " + (threadId || "")).trim() : query.trim();
-    if (!q) return;
-    setMissingFields([]);
-    doStream({ query: q, thread_id: threadId || undefined });
-  };
-
-  const confirmConcern = async () => {
-    const { pending_id, parent_plan_id } = concernModal;
-    setConcernModal(null);
-    setPhase("loading");
-    resetJourney();
-    confirmModification(pending_id, parent_plan_id, {
-      onAbort: (fn) => { abortRef.current = fn; },
-      onStage: handleStage,
-      onResult: (ev) => {
-        const adapted = adaptPlan(ev.plan, currentUsername);
-        const newPlanId = ev.plan_id || planId;
-        setPlanId(newPlanId);
-        setDoneNodes(JOURNEY_STEPS.map(s => s.key));
-        setTimeout(() => { onPlanReady?.(adapted, newPlanId); setPhase("idle"); }, 600);
-      },
-      onError: (msg) => { setErrMsg(msg); setPhase("idle"); },
-    });
-  };
-
-  const examples = [
-    "北京明天三日游，想玩颐和园、故宫，不喜欢走太多路",
-    "成都周末两天，想泡茶馆吃火锅",
-    "杭州一日，西湖边慢慢走",
-  ];
-
-  // 画像偏好行（仅渲染非空字段；全空则整卡隐藏）
-  const activeProfileFacts = profile?.active_facts || [];
-  const profileRows = profile ? [
-    { key: "attr", label: "景点", cls: "attr", items: activeProfileFacts.filter(item => item.category === "attraction_preference").map(item => item.value_text) },
-    { key: "food", label: "餐饮", cls: "food", items: activeProfileFacts.filter(item => ["food_preference", "dietary_requirement"].includes(item.category)).map(item => item.value_text) },
-    { key: "habit", label: "习惯", cls: "habit", items: activeProfileFacts.filter(item => ["travel_pace", "transport_preference", "schedule_preference"].includes(item.category)).map(item => item.value_text) },
-  ].filter(r => r.items.length) : [];
-
-  // ── 加载中 ──
-  if (phase === "loading") {
-    return (
-      <div className="page page-fade">
-        <div className="journey">
-          <div className="journey-head">
-            <h2>正在为你规划这趟旅程</h2>
-            <span className="sub">多位 Agent 接力工作中 · 通常需要 1–2 分钟</span>
-          </div>
-          <JourneyLoading steps={JOURNEY_STEPS} activeNode={activeNode} doneNodes={doneNodes} />
-          <div className="journey-steps">
-            {JOURNEY_STEPS.map((s) => {
-              const isDone = doneNodes.includes(s.key);
-              const isActive = s.key === activeNode;
-              const cls = isDone ? "done" : isActive ? "active" : "";
-              return (
-                <div key={s.key} className={`j-step ${cls}`}>
-                  <span className="j-ico">{isDone ? "✓" : JOURNEY_STEPS.indexOf(s) + 1}</span>
-                  <span>{s.label}</span>
-                  <span className="j-detail">{isActive && stageLabel ? stageLabel : s.detail}</span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // ── 首屏 idle ──
-  return (
-    <div className="page page-fade">
-      {concernModal && (
-        <ConcernModal
-          concern={concernModal.concern}
-          onKeep={() => { setConcernModal(null); onCancelModify?.(); }}
-          onConfirm={confirmConcern}
-        />
-      )}
-      <div className="hero">
-        <div>
-          <div className="hero-eyebrow">AI Travel Planner · Vol.06</div>
-          <h1>把目的地交给我，<br />你只管<em>期待出发</em>。</h1>
-          <p className="hero-lede">
-            告诉我想去哪里、哪几天、喜欢什么——多位 AI Agent 会查景点、订路线、看天气、找馆子，几分钟内排出一份像杂志一样好读的行程。
-          </p>
-          {profileRows.length > 0 && (
-            <div className="profile-hint">
-              <div className="ph-head">
-                <span className="ph-title">途途记得的你</span>
-                <button className="ph-manage" onClick={onManageProfile}>管理画像</button>
-              </div>
-              <p className="ph-desc">这些是从你过往行程沉淀的偏好。规划时可对照它斟酌措辞——说得越贴合，行程越懂你。</p>
-              <div className="ph-rows">
-                {profileRows.map(r => (
-                  <div key={r.key} className="ph-row">
-                    <span className="ph-label">{r.label}</span>
-                    <div className="ph-chips">
-                      {r.items.map((it, i) => (
-                        <span key={i} className={`ph-chip ${r.cls}`}>{it}</span>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-          <div className="query-card">
-            <div className="query-label"><span className="mode-dot"></span>描述你的旅行需求（含目的地、日期、偏好）</div>
-            <textarea
-              className="query-textarea"
-              placeholder="例如：北京明天三日游，想玩颐和园、故宫，不喜欢走太多路"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) startPlan(); }}
-            />
-            {missingFields.length > 0 && (
-              <div className="missing-hints">
-                {missingFields.map(f => (
-                  <span key={f} className="missing-hint">
-                    ⚠ 缺少{f}
-                  </span>
-                ))}
-              </div>
-            )}
-            {errMsg && <div style={{ marginTop: 8, fontSize: ".85rem", color: "var(--accent)" }}>{errMsg}</div>}
-            <div className="query-foot">
-              <div className="example-chips">
-                {examples.map((ex) => (
-                  <button key={ex} className="chip" onClick={() => setQuery(ex)}>{ex.slice(0, 14)}…</button>
-                ))}
-              </div>
-              <button className="go-btn" onClick={startPlan} disabled={!query.trim()}>
-                开始规划 <span className="arrow">→</span>
-              </button>
-            </div>
-          </div>
-        </div>
-        <div className="hero-stage">
-          <div className="stamp">PASSPORT<br />2026<br />已盖章</div>
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
-            <div className="speech">你好呀，我是向导<strong>途途</strong>。这次想去哪儿？</div>
-            <Mascot size={190} pose="wave" />
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+  return <section className="brief-confirmation" aria-labelledby={`brief-title-${brief.id}`}>
+    <div className="brief-confirmation-head"><div><span>规划确认</span><h3 id={`brief-title-${brief.id}`}>必要条件已齐全</h3></div><b aria-hidden="true"><UiIcon name="sparkle" size={18} /></b></div>
+    <div className="brief-confirmation-grid">{details.map(([icon, label, value]) => <div key={label}><i aria-hidden="true"><UiIcon name={icon} size={19} /></i><p><small>{label}</small><strong>{value}</strong></p></div>)}</div>
+    {!!tags.length && <div className="brief-confirmation-tags">{tags.map(tag => <span key={tag}>{tag}</span>)}</div>}
+    {error && <p className="brief-error" role="alert">{error}</p>}
+    <button className="brief-confirmation-submit" disabled={busy} onClick={submit}>{!busy && <UiIcon name="sparkle" size={17} />}{busy ? "正在创建规划…" : "开始规划"}</button>
+  </section>;
 }
 
 /* ── 行程详情页 ───────────────────────────────── */
-function TripDetailPage({ plan: planProp, planId: planIdProp, onRequestModify, onRequestLogin, currentUsername }) {
+function DetailLightRays() {
+  const rays = [
+    [8, -22, 190, 1.1, -2.3, 15.4, .72],
+    [23, -11, 255, 1.8, -8.6, 12.8, .88],
+    [38, 7, 215, 1.25, -5.1, 17.1, .67],
+    [52, -5, 300, 2.1, -10.2, 13.7, .96],
+    [67, 18, 230, 1.45, -3.8, 16.2, .76],
+    [81, -16, 275, 1.7, -7.4, 14.6, .82],
+    [93, 24, 180, 1.05, -1.2, 18.1, .64],
+  ];
+  return <div className="detail-light-rays" aria-hidden="true">
+    <div className="detail-light-rays-inner">
+      <i className="detail-light-rays-glow left" />
+      <i className="detail-light-rays-glow right" />
+      {rays.map(([left, rotate, width, swing, delay, cycle, intensity], index) => <i key={index} className="detail-light-ray" style={{
+        "--ray-left": `${left}%`, "--ray-rotate": `${rotate}deg`, "--ray-width": `${width}px`,
+        "--ray-swing": `${swing}deg`, "--ray-delay": `${delay}s`, "--ray-cycle": `${cycle}s`, "--ray-intensity": intensity,
+      }} />)}
+    </div>
+  </div>;
+}
+
+function DetailWeatherCard({ destination, weather }) {
+  if (!weather) return null;
+  const current = weather.hi !== "—" ? weather.hi : weather.lo;
+  return <aside className="detail-weather-card" aria-label={`${destination}天气：${weather.text}`}>
+    <div className="detail-weather-main">
+      <p>{destination || "目的地"}</p>
+      <div className="detail-weather-hero"><WeatherGlyph value={weather.icon || weather.text} size={30} /><strong>{current}°</strong></div>
+      <small>{weather.text || "天气信息"}</small>
+    </div>
+    <div className="detail-weather-range">
+      <span className="high"><UiIcon name="arrow-up" size={13} />{weather.hi}°</span>
+      <i />
+      <span className="low"><UiIcon name="arrow-up" size={13} />{weather.lo}°</span>
+    </div>
+  </aside>;
+}
+
+function itemDuration(item) {
+  if (!item?.start || !item?.end) return item?.type === "attraction" ? "建议停留" : "用餐";
+  const [sh, sm] = item.start.split(":").map(Number);
+  const [eh, em] = item.end.split(":").map(Number);
+  const minutes = (eh * 60 + em) - (sh * 60 + sm);
+  if (!(minutes > 0)) return `${item.start}–${item.end}`;
+  if (minutes % 60 === 0) return `${minutes / 60} 小时`;
+  return `${Math.floor(minutes / 60)} 小时 ${minutes % 60} 分`;
+}
+
+function ReferenceDayTimeline({ items, onNav, activeNavKey, tipStatus }) {
+  return <div className="reference-itinerary-timeline">
+    {(items || []).map((item, index) => {
+      const next = items[index + 1];
+      const navKey = next ? `reference:${index}` : null;
+      const isMeal = item.type !== "attraction";
+      const note = item.note || item.reason || item.address || item.addr
+        || (tipStatus === "queued" || tipStatus === "running" ? "途途正在整理这处地点的旅行贴士…" : "已同步到当前路线。点开地图标记可查看更多地点信息。");
+      const card = <article className="reference-timeline-card">
+        <div className="reference-timeline-card-row">
+          <time>{item.start || (item.type === "lunch" ? "午餐" : item.type === "dinner" ? "晚餐" : "待定")}</time>
+          <div className="reference-timeline-main">
+            <div className="reference-timeline-title"><h3>{item.name || "待安排地点"}</h3><span>{itemDuration(item)}</span></div>
+            <p>{note}</p>
+            <small><UiIcon name="clock" size={13} />{isMeal ? "建议预留用餐时间" : `建议停留 ${itemDuration(item)}`}</small>
+          </div>
+          <UiIcon name="arrow-right" size={16} className="reference-timeline-chevron" />
+        </div>
+      </article>;
+      return <div className={`reference-timeline-stop${isMeal ? " is-meal" : ""}`} key={`${item.name}-${index}`}>
+        <span className="reference-timeline-node"><UiIcon name={isMeal ? "utensils" : "location"} size={14} /></span>
+        {index === 0 ? <div className="reference-border-trail">{card}</div> : card}
+        {next && <div className="reference-transfer">
+          <button className={activeNavKey === navKey ? "active" : ""} onClick={() => {
+            if (!item.location || !next.location) return;
+            onNav?.(activeNavKey === navKey ? null : navKey, { from: item.location, to: next.location });
+          }} disabled={!item.location || !next.location}>
+            <UiIcon name="navigation" size={13} /><b>前往下一站</b>
+            <span>{next.dist ? `${next.dist} km` : "查看地图路线"}</span>
+          </button>
+        </div>}
+      </div>;
+    })}
+  </div>;
+}
+
+function LegacyTripDetailPage({ plan: planProp, planId: planIdProp, onRequestModify, currentUsername, onBack, onPlanChange }) {
   const [plan, setPlan] = React.useState(planProp);
   const [planId, setPlanId] = React.useState(planIdProp);
   const [dayIdx, setDayIdx] = React.useState(0);
-  const [modQuery, setModQuery] = React.useState("");
   const [optimizedDays, setOptimizedDays] = React.useState({});
   const [optimizingDay, setOptimizingDay] = React.useState(null);
   const [dayMsg, setDayMsg] = React.useState(null);
@@ -1415,12 +1121,21 @@ function TripDetailPage({ plan: planProp, planId: planIdProp, onRequestModify, o
   const [activeNavPair, setActiveNavPair] = React.useState(null);
   const [nearbyTarget, setNearbyTarget] = React.useState(null);
   const [themeInput, setThemeInput] = React.useState("");
+  const [mapWidth, setMapWidth] = React.useState(58);
+  const [resizingPane, setResizingPane] = React.useState(false);
+  const [sheetHeight, setSheetHeight] = React.useState(39);
+  const [resizingSheet, setResizingSheet] = React.useState(false);
+  const sheetDragActive = React.useRef(false);
+  const [sheetCollapsed, setSheetCollapsed] = React.useState(false);
+  const [historyOpen, setHistoryOpen] = React.useState(false);
+  const [historyItems, setHistoryItems] = React.useState([]);
+  const [historyLoading, setHistoryLoading] = React.useState(false);
+  const [shareNotice, setShareNotice] = React.useState("");
 
   React.useEffect(() => {
     setPlan(planProp);
     setPlanId(planIdProp);
     setDayIdx(0);
-    setModQuery("");
     setOptimizedDays({});
     setOptimizingDay(null);
     setDayMsg(null);
@@ -1437,7 +1152,106 @@ function TripDetailPage({ plan: planProp, planId: planIdProp, onRequestModify, o
     setRedoStack([]);
     setSaveErr("");
     setSearchTarget(null);
+    setSheetHeight(39);
+    setSheetCollapsed(false);
+    setHistoryOpen(false);
+    setShareNotice("");
   }, [planProp, planIdProp]);
+
+  const clampMapWidth = React.useCallback(value => {
+    const viewport = Math.max(window.innerWidth || 0, 1);
+    const maxWithChatRoom = ((viewport - 220) / viewport) * 100;
+    return Math.max(22, Math.min(84, maxWithChatRoom, value));
+  }, []);
+
+  const resizeMapAt = React.useCallback(clientX => {
+    const raw = ((window.innerWidth - clientX) / window.innerWidth) * 100;
+    setMapWidth(clampMapWidth(raw));
+  }, [clampMapWidth]);
+
+  const clampSheetHeight = React.useCallback(value => {
+    const viewport = Math.max(window.innerHeight || 0, 1);
+    const minimum = Math.min(39, (340 / viewport) * 100);
+    return Math.max(minimum, Math.min(82, value));
+  }, []);
+
+  const resizeSheetAt = React.useCallback(clientY => {
+    const raw = ((window.innerHeight - clientY) / Math.max(window.innerHeight, 1)) * 100;
+    setSheetHeight(clampSheetHeight(raw));
+  }, [clampSheetHeight]);
+
+  React.useEffect(() => {
+    const move = event => {
+      if (sheetDragActive.current) resizeSheetAt(event.clientY);
+    };
+    const stop = () => {
+      if (!sheetDragActive.current) return;
+      sheetDragActive.current = false;
+      setResizingSheet(false);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop);
+    window.addEventListener("pointercancel", stop);
+    return () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", stop);
+      window.removeEventListener("pointercancel", stop);
+    };
+  }, [resizeSheetAt]);
+
+  const showHistory = async () => {
+    const nextOpen = !historyOpen;
+    setHistoryOpen(nextOpen);
+    if (!nextOpen || !planId) return;
+    setHistoryLoading(true);
+    try { setHistoryItems(await listConversations(planId)); }
+    catch { setHistoryItems([]); }
+    finally { setHistoryLoading(false); }
+  };
+
+  const sharePlan = async () => {
+    if (!planId) return;
+    const url = `${window.location.origin}/?view_plan_id=${encodeURIComponent(planId)}`;
+    try {
+      if (navigator.share) await navigator.share({ title: plan?.title || "旅行行程", url });
+      else { await navigator.clipboard.writeText(url); setShareNotice("链接已复制"); }
+    } catch (error) {
+      if (error?.name !== "AbortError") setShareNotice("暂时无法分享");
+    }
+    window.setTimeout(() => setShareNotice(""), 2200);
+  };
+
+  const openConversationResult = React.useCallback(async resultPlanId => {
+    if (!resultPlanId) return;
+    try {
+      const data = await getHistoryItem(resultPlanId);
+      if (!data?.plan) return;
+      const adapted = adaptPlan(data.plan, currentUsername);
+      setPlan(adapted);
+      setPlanId(resultPlanId);
+      setDayIdx(0);
+      onPlanChange?.(data.plan, resultPlanId);
+    } catch {}
+  }, [currentUsername, onPlanChange]);
+
+  // 详情页自持 itinerary 级订阅；聊天页卸载后仍可原位取得贴士。
+  React.useEffect(() => {
+    if (!planId) return undefined;
+    let abort = null;
+    let alive = true;
+    streamItineraryTips(planId, {
+      onAbort: fn => { abort = fn; },
+      onEvent: event => {
+        if (event.payload?.kind !== "itinerary.tip_status_changed") return;
+        getHistoryItem(planId).then(data => {
+          if (!alive || !data?.plan) return;
+          const adapted = adaptPlan(data.plan, currentUsername);
+          setPlan(previous => ({ ...adapted, logs: previous?.logs || adapted.logs }));
+        }).catch(() => {});
+      },
+    });
+    return () => { alive = false; abort?.(); };
+  }, [planId, currentUsername]);
 
   const applyDayTimeline = (dayI, timeline) => {
     const raw = { ...plan._raw, days: plan._raw.days.map((d, i) => i === dayI ? { ...d, timeline } : d) };
@@ -1590,6 +1404,8 @@ function TripDetailPage({ plan: planProp, planId: planIdProp, onRequestModify, o
       }
       const adapted = adaptPlan(res.plan, currentUsername);
       adapted.logs = plan.logs;
+      // 手动路线编辑改变了指纹；旧版本贴士不应继续作为当前路线的内容展示。
+      adapted.tip_status = "unavailable";
       setPlan(adapted);
       setEditing(false); setDraft(null); draftRef.current = null; setSearchTarget(null);
       setOptimizedDays({});   // 手动编辑后旧的"优化前快照"失效
@@ -1655,14 +1471,26 @@ function TripDetailPage({ plan: planProp, planId: planIdProp, onRequestModify, o
     return adapted;
   }, [editing, editVer]); // editVer 是版本令牌：draft 每次变更都 +1，故意省略 draft/plan 直接依赖
 
-  const startModify = () => {
+  const startModify = (query) => {
     if (editing) {
       if (!confirm("正在手动编辑，离开将丢弃未保存的修改。继续？")) return;
       setEditing(false); setDraft(null); draftRef.current = null; setSaveErr("");
     }
-    if (!getAuth()) { onRequestLogin?.(); return; }
-    if (!modQuery.trim() || !planId) return;
-    onRequestModify?.(modQuery, planId);
+    const content = String(query || "").trim();
+    if (!content || !planId) return;
+    onRequestModify?.(content, planId);
+  };
+
+  const retryTips = async () => {
+    if (!planId) return;
+    try {
+      const result = await retryItineraryTips(planId);
+      if (result.status === "queued") setPlan(previous => ({ ...previous, tip_status: "queued" }));
+      if (result.status === "succeeded") {
+        const data = await getHistoryItem(planId);
+        if (data?.plan) setPlan(adaptPlan(data.plan, currentUsername));
+      }
+    } catch (e) { alert(e.message || "贴士生成任务提交失败"); }
   };
 
   if (!plan) return null;
@@ -1702,201 +1530,326 @@ function TripDetailPage({ plan: planProp, planId: planIdProp, onRequestModify, o
     }
   };
 
-  return (
-    <React.Fragment>
-      {searchTarget && (
-        <PoiSearchModal
-          city={plan.destination}
-          kind={searchTarget.idx != null
-            ? (draft[searchTarget.dayI].timeline[searchTarget.idx].type === "attraction" ? "attraction" : "restaurant")
-            : (searchTarget.addType === "attraction" ? "attraction" : "restaurant")}
-          title={searchTarget.idx != null ? "更换为…" : "添加…"}
-          onPick={handlePoiPick}
-          onClose={() => setSearchTarget(null)} />
-      )}
-      {nearbyTarget && (
-        <NearbySearchModal
-          location={nearbyTarget.location}
-          name={nearbyTarget.name}
-          onClose={() => setNearbyTarget(null)}
-          onPickMeal={handlePickMeal} />
-      )}
+  return <React.Fragment>
+    {searchTarget && <PoiSearchModal
+      city={plan.destination}
+      kind={searchTarget.idx != null
+        ? (draft[searchTarget.dayI].timeline[searchTarget.idx].type === "attraction" ? "attraction" : "restaurant")
+        : (searchTarget.addType === "attraction" ? "attraction" : "restaurant")}
+      title={searchTarget.idx != null ? "更换为…" : "添加…"}
+      onPick={handlePoiPick} onClose={() => setSearchTarget(null)} />}
+    {nearbyTarget && <NearbySearchModal location={nearbyTarget.location} name={nearbyTarget.name}
+      onClose={() => setNearbyTarget(null)} onPickMeal={handlePickMeal} />}
     <div className="page page-fade trip-detail-page">
-      <div className="result-grid">
-        <div>
-          <div className="plan-cover">
-            <div className="cover-img" style={{ backgroundImage: `url('${plan.cover_img}')` }}></div>
-            <div className="cover-shade"></div>
-            <div className="cover-body">
-              <div className="eyebrow">ITINERARY · 行程总览</div>
-              <h2>{plan.title}</h2>
-              <div className="cover-meta">
-                <span>{plan.date_range}</span>
-                {plan.badges.map((b) => <span key={b} className="cover-badge">{b}</span>)}
+      <div className={`detail-workspace${resizingPane ? " is-resizing" : ""}${resizingSheet ? " is-sheet-resizing" : ""}`} style={{ "--detail-map-width": `${mapWidth}%` }}>
+        <ItineraryCopilot plan={plan} planId={planId} day={day} dayIdx={dayIdx} editing={editing}
+          currentUsername={currentUsername} onBack={onBack} onHistory={showHistory} onShare={sharePlan}
+          historyOpen={historyOpen} historyItems={historyItems} historyLoading={historyLoading}
+          shareNotice={shareNotice} onPlanResult={openConversationResult} />
+
+        <main className={`detail-map-overlay${sheetCollapsed ? " sheet-collapsed" : ""}`} style={{ width: `${mapWidth}%` }}>
+          <div className="detail-map-resizer" role="separator" tabIndex="0" aria-label="调整聊天与地图宽度"
+            aria-orientation="vertical" aria-valuemin="22" aria-valuemax="84" aria-valuenow={Math.round(mapWidth)}
+            onPointerDown={event => { event.preventDefault(); event.currentTarget.setPointerCapture?.(event.pointerId); setResizingPane(true); resizeMapAt(event.clientX); }}
+            onPointerMove={event => { if (event.currentTarget.hasPointerCapture?.(event.pointerId)) resizeMapAt(event.clientX); }}
+            onPointerUp={event => { event.currentTarget.releasePointerCapture?.(event.pointerId); setResizingPane(false); }}
+            onPointerCancel={() => setResizingPane(false)} onDoubleClick={() => setMapWidth(58)}
+            onKeyDown={event => {
+              if (!["ArrowLeft", "ArrowRight", "Home"].includes(event.key)) return;
+              event.preventDefault();
+              if (event.key === "Home") setMapWidth(58);
+              else setMapWidth(value => clampMapWidth(value + (event.key === "ArrowLeft" ? 2 : -2)));
+            }} />
+          <section className="detail-map-zone" aria-label={`Day ${dayNo} 路线地图`}>
+            <MapPanel day={day} dayIdx={dayIdx} navPair={activeNavPair} workbenchControls
+              onNavClear={() => { setActiveNavKey(null); setActiveNavPair(null); }} />
+            <DetailWeatherCard destination={plan.destination} weather={plan.weather?.[dayIdx] || plan.weather?.[0]} />
+          </section>
+
+          <section className={`detail-itinerary-sheet${sheetCollapsed ? " collapsed" : ""}`} aria-label={`Day ${dayNo} 行程详情`}
+            style={sheetCollapsed ? undefined : { height: `${sheetHeight}%` }}>
+            <div className="detail-sheet-resizer" role="separator" tabIndex="0" aria-label="调整地图与行程详情高度"
+              aria-orientation="horizontal" aria-valuemin="39" aria-valuemax="82" aria-valuenow={Math.round(sheetHeight)}
+              onPointerDown={event => {
+                event.preventDefault();
+                sheetDragActive.current = true;
+                setSheetCollapsed(false);
+                setResizingSheet(true);
+                resizeSheetAt(event.clientY);
+              }}
+              onDoubleClick={() => { sheetDragActive.current = false; setResizingSheet(false); setSheetCollapsed(false); setSheetHeight(39); }}
+              onKeyDown={event => {
+                if (!["ArrowUp", "ArrowDown", "Home"].includes(event.key)) return;
+                event.preventDefault();
+                setSheetCollapsed(false);
+                if (event.key === "Home") setSheetHeight(39);
+                else setSheetHeight(value => clampSheetHeight(value + (event.key === "ArrowUp" ? 4 : -4)));
+              }}><span /></div>
+            <nav className="detail-fluid-tabs" aria-label="选择行程日期"
+              style={{ "--active-day": dayIdx, "--day-count": plan.days.length }}>
+              <div className="detail-day-tabs" role="tablist" onKeyDown={event => {
+                if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+                const tabs = [...event.currentTarget.querySelectorAll('[role="tab"]')];
+                const current = Math.max(0, tabs.indexOf(document.activeElement));
+                const next = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1
+                  : (current + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+                event.preventDefault();
+                tabs[next]?.focus();
+              }}>
+                <i className="detail-fluid-indicator" aria-hidden="true" />
+                {plan.days.map((_, index) => <button key={index} role="tab" aria-selected={index === dayIdx}
+                  className={index === dayIdx ? "active" : ""}
+                  onClick={() => { setDayIdx(index); setActiveNavKey(null); setActiveNavPair(null); }}>
+                  <b>Day {index + 1}</b>
+                </button>)}
               </div>
-            </div>
-          </div>
-
-          {plan.weather.length > 0 && (
-            <div className="weather-strip">
-              {plan.weather.map((w, i) => (
-                <div key={i} className="weather-cell">
-                  <span className="w-ico">{w.icon}</span>
-                  <span>
-                    <div className="w-day">{w.day}</div>
-                    <div className="w-temp">
-                      <span className="w-weather">{w.text}</span>
-                      <span className="w-hi">{w.hi}°</span>
-                      <span className="w-sep">/</span>
-                      <span className="w-lo">{w.lo}°</span>
-                    </div>
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <div className="day-tabs">
-            {plan.days.map((d, i) => (
-              <button key={i} className={`day-tab ${i === dayIdx ? "active" : ""}`}
-                onClick={() => { setDayIdx(i); setActiveNavKey(null); setActiveNavPair(null); }}>
-                <span className="dt-num">Day {i + 1}</span>
-                <span className="dt-date">{d.date}</span>
+            </nav>
+            <div className="detail-shift-tabs">
+              <button className={sheetCollapsed ? "is-collapsed" : ""} aria-expanded={!sheetCollapsed}
+                onClick={() => setSheetCollapsed(value => !value)}>
+                <span><UiIcon name="chevron-down" size={15} />{sheetCollapsed ? "展开" : "收起"}</span>
               </button>
-            ))}
-          </div>
-
-          <RecommendStrip candidates={viewPlan.candidate_spots} editing={editing} />
-
-          <div className="day-header">
-            {editing ? (
-              <input
-                className="theme-input"
-                value={themeInput}
-                onChange={e => setThemeInput(e.target.value)}
-                onBlur={() => {
-                  const cur = draft[dayIdx]?.theme || "";
-                  if (themeInput !== cur) applyEdit(d => { d[dayIdx].theme = themeInput; });
-                }}
-                onKeyDown={e => e.key === "Enter" && e.target.blur()}
-              />
-            ) : (
-              <div className="day-theme">{day.theme}</div>
-            )}
-            {dayMsg && dayMsg.day === dayNo && <span className="day-opt-msg">{dayMsg.text}</span>}
-            {!editing && planId && (
-              <button className="optimize-btn" onClick={enterEdit}>✏️ 编辑行程</button>
-            )}
-            {!editing && hasAttractions && planId && (
-              isOptimized ? (
-                <button className="revert-btn" onClick={() => handleRevert(dayNo)}>↩ 回退</button>
-              ) : (
-                <button className="optimize-btn" disabled={optimizingDay === dayNo} onClick={() => handleOptimize(dayNo)}>
-                  {optimizingDay === dayNo ? "优化中…" : "🔀 优化路线"}
-                </button>
-              )
-            )}
-          </div>
-
-          {editing ? (
-            <>
-              <EditToolbar canUndo={undoStack.length > 0} canRedo={redoStack.length > 0}
-                saving={saving} saveErr={saveErr}
-                onUndo={undo} onRedo={redo} onCancel={exitEdit} onSave={saveEdit} />
-              <EditableTimeline rawTimeline={draft[dayIdx].timeline} ver={`${dayIdx}-${editVer}`}
-                onReorder={handleReorder}
-                onReplace={(idx) => setSearchTarget({ dayI: dayIdx, idx })}
-                onDelete={handleDelete}
-                onTimeChange={handleTimeChange}
-                onAdd={(addType) => setSearchTarget({ dayI: dayIdx, idx: null, addType })}
-                onDropCandidate={(idx, candidate) => {
-                  applyEdit(d => {
-                    const old = d[dayIdx].timeline[idx];
-                    d[dayIdx].timeline[idx] = {
-                      ...old,
-                      name: candidate.name,
-                      rating: candidate.rating ?? null,
-                      open_time: candidate.open_time ?? null,
-                      location: candidate.location,
-                      photo: candidate.photo ?? null,
-                      address: candidate.address ?? null,
-                      tip: null,
-                    };
-                  });
-                }} />
-            </>
-          ) : (
-            <Timeline items={day.items} key={dayIdx} onNav={handleNav} activeNavKey={activeNavKey} />
-          )}
-
-          <div className="tip-card">
-            <Mascot size={72} pose="point" />
-            <div className="tip-body">
-              <div className="tip-title">途途的小贴士</div>
-              {plan.tips.length > 0 ? (
-                <ul className="tip-list">{plan.tips.map((t, i) => <li key={i}>{t}</li>)}</ul>
-              ) : (
-                <div className="tip-text">行程已为你精心安排，祝旅途愉快！</div>
-              )}
             </div>
-          </div>
 
-          {planId && (
-            <div className="hotel-notes-section">
-              <div className="hn-field">
-                <label className="hn-label">🏨 住宿</label>
-                <input className="hn-input" value={hotel} placeholder="记录酒店名称、价格…"
-                  onChange={e => { setHotel(e.target.value); setMetaDirty(true); }} />
+            <div className="detail-sheet-content">
+              <div className="detail-day-view" style={{ "--day-color": ["#2cb8f5", "#ff9650", "#6c59ef"][dayIdx % 3] }}>
+                <div className="detail-day-overview">
+                  <div><strong>{day.theme || `Day ${dayNo} 的旅行安排`}</strong><p><span>{day.items.length} 个安排</span><i>·</i><span>{day.date || plan.date_range}</span><i>·</i><span>地图已同步</span></p></div>
+                  <span className="detail-route-badge"><i />{day.items.filter(item => item.type === "attraction").length} 个景点 · 当前路线</span>
+                </div>
+
+                {editing ? <div className="detail-editing-zone">
+                  <EditToolbar canUndo={undoStack.length > 0} canRedo={redoStack.length > 0}
+                    saving={saving} saveErr={saveErr} onUndo={undo} onRedo={redo} onCancel={exitEdit} onSave={saveEdit} />
+                  <EditableTimeline rawTimeline={draft[dayIdx].timeline} ver={`${dayIdx}-${editVer}`}
+                    onReorder={handleReorder} onReplace={idx => setSearchTarget({ dayI: dayIdx, idx })}
+                    onDelete={handleDelete} onTimeChange={handleTimeChange}
+                    onAdd={addType => setSearchTarget({ dayI: dayIdx, idx: null, addType })}
+                    onDropCandidate={(idx, candidate) => applyEdit(days => {
+                      const old = days[dayIdx].timeline[idx];
+                      days[dayIdx].timeline[idx] = { ...old, name: candidate.name, rating: candidate.rating ?? null,
+                        open_time: candidate.open_time ?? null, location: candidate.location, photo: candidate.photo ?? null,
+                        address: candidate.address ?? null, tip: null };
+                    })} />
+                </div> : <ReferenceDayTimeline items={day.items} onNav={handleNav} activeNavKey={activeNavKey} tipStatus={plan.tip_status} />}
+
+                <details className="detail-more-panel" open={editing || undefined}>
+                  <summary>更多行程信息与编辑</summary>
+                  <div className="detail-more-actions">
+                    {!editing && planId && <button onClick={enterEdit}><UiIcon name="edit" size={14} />编辑行程</button>}
+                    {!editing && hasAttractions && planId && (isOptimized
+                      ? <button onClick={() => handleRevert(dayNo)}><UiIcon name="undo" size={14} />回退优化</button>
+                      : <button disabled={optimizingDay === dayNo} onClick={() => handleOptimize(dayNo)}><UiIcon name="shuffle" size={14} />{optimizingDay === dayNo ? "优化中…" : "优化路线"}</button>)}
+                    {dayMsg && dayMsg.day === dayNo && <span>{dayMsg.text}</span>}
+                  </div>
+                  {editing && <input className="theme-input" value={themeInput} onChange={event => setThemeInput(event.target.value)}
+                    onBlur={() => { const current = draft[dayIdx]?.theme || ""; if (themeInput !== current) applyEdit(days => { days[dayIdx].theme = themeInput; }); }}
+                    onKeyDown={event => event.key === "Enter" && event.target.blur()} />}
+                  <RecommendStrip candidates={viewPlan.candidate_spots} editing={editing} />
+                  <div className="tip-card"><Mascot size={72} pose="point" /><div className="tip-body"><div className="tip-title">途途的小贴士</div>
+                    {plan.tips.length ? <ul className="tip-list">{plan.tips.map((tip, index) => <li key={index}>{tip}</li>)}</ul> : <div className="tip-text">行程已为你精心安排，祝旅途愉快！</div>}
+                    {["failed", "cancelled", "unavailable"].includes(plan.tip_status) && planId && <button className="nearby-btn" onClick={retryTips}>重新生成景点贴士</button>}
+                  </div></div>
+                  {planId && <div className="hotel-notes-section"><div className="hn-field"><label className="hn-label"><UiIcon name="bed" size={15} />住宿</label><input className="hn-input" value={hotel} placeholder="记录酒店名称、价格…" onChange={event => { setHotel(event.target.value); setMetaDirty(true); }} /></div>
+                    <div className="hn-field"><label className="hn-label"><UiIcon name="edit" size={15} />备注</label><textarea className="hn-input hn-textarea" value={notes} rows="2" placeholder="特别要求、注意事项…" onChange={event => { setNotes(event.target.value); setMetaDirty(true); }} /></div>
+                    {metaDirty && <button className="go-btn" disabled={metaSaving} onClick={handleSaveMeta}>{metaSaving ? "保存中…" : "保存行程备注"}</button>}
+                  </div>}
+                  {plan.logs?.length > 0 && <details className="log-details"><summary>规划过程日志（{plan.logs.length} 步）</summary><ul className="log-list">{plan.logs.map((log, index) => <li key={index}>{log}</li>)}</ul></details>}
+                </details>
               </div>
-              <div className="hn-field">
-                <label className="hn-label">📝 备注</label>
-                <textarea className="hn-input hn-textarea" value={notes} rows={2}
-                  placeholder="特别要求、注意事项…"
-                  onChange={e => { setNotes(e.target.value); setMetaDirty(true); }} />
-              </div>
-              {metaDirty && (
-                <button className="go-btn" style={{ marginTop: 8 }} disabled={metaSaving} onClick={handleSaveMeta}>
-                  {metaSaving ? "保存中…" : "保存行程备注"}
-                </button>
-              )}
             </div>
-          )}
+          </section>
+        </main>
+      </div>
+    </div>
+  </React.Fragment>;
+}
 
-          {plan.logs && plan.logs.length > 0 && (
-            <details className="log-details">
-              <summary>规划过程日志（{plan.logs.length} 步）</summary>
-              <ul className="log-list">{plan.logs.map((l, i) => <li key={i}>{l}</li>)}</ul>
-            </details>
-          )}
+function ItineraryCopilot({
+  plan, planId, day, dayIdx, editing, currentUsername, onBack,
+  onHistory, onShare, historyOpen, historyItems, historyLoading,
+  shareNotice, onPlanResult,
+}) {
+  const [query, setQuery] = React.useState("");
+  const [activeId, setActiveId] = React.useState(null);
+  const [state, setState] = React.useState(() => ChatState.initialState());
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState("");
+  const abortsRef = React.useRef({});
+  const scrollRef = React.useRef(null);
+
+  const runs = Object.values(state.runs || {}).sort((a, b) => String(a.created_at || "").localeCompare(String(b.created_at || "")));
+  const blockingRun = [...runs].reverse().find(run => ["queued", "running", "waiting_user"].includes(run.status)) || null;
+  const failedRun = [...runs].reverse().find(run => run.status === "failed") || null;
+  const messages = Object.values(state.messages || {}).sort((a, b) => (a.sequence || 0) - (b.sequence || 0));
+
+  const applyRunEvent = React.useCallback((runId, event) => {
+    setState(previous => ChatState.applyEvent(previous, runId, event));
+    const completed = event.payload?.kind === "run.status" && event.payload.status === "succeeded";
+    if (completed) {
+      getRun(runId).then(run => {
+        if (run?.result_itinerary_id) onPlanResult?.(run.result_itinerary_id);
+      }).catch(() => {});
+    }
+  }, [onPlanResult]);
+
+  const subscribeRun = React.useCallback(run => {
+    if (!run?.id || abortsRef.current[run.id]) return;
+    let activeAbort = null;
+    streamRuntimeRun(run.id, 0, {
+      onAbort: abort => { activeAbort = abort; abortsRef.current[run.id] = abort; },
+      onEvent: event => applyRunEvent(run.id, event),
+      onClose: () => { if (abortsRef.current[run.id] === activeAbort) delete abortsRef.current[run.id]; },
+      onError: () => { if (abortsRef.current[run.id] === activeAbort) delete abortsRef.current[run.id]; },
+    });
+  }, [applyRunEvent]);
+
+  const loadConversation = React.useCallback(async conversationId => {
+    setActiveId(conversationId);
+    const [loadedMessages, loadedRuns] = await Promise.all([
+      getConversationMessages(conversationId), listRuns(conversationId),
+    ]);
+    let next = ChatState.initialState();
+    loadedMessages.forEach(message => { next = ChatState.upsertMessage(next, message); });
+    loadedRuns.forEach(run => { next.runs[run.id] = run; });
+    const activeRuns = loadedRuns.filter(run => ["queued", "running", "waiting_user"].includes(run.status));
+    const histories = await Promise.all(activeRuns.map(run => getRunEvents(run.id, 0).catch(() => [])));
+    activeRuns.forEach((run, index) => histories[index].forEach(event => { next = ChatState.applyEvent(next, run.id, event); }));
+    setState(next);
+    activeRuns.forEach(subscribeRun);
+  }, [subscribeRun]);
+
+  React.useEffect(() => {
+    Object.values(abortsRef.current).forEach(abort => abort());
+    abortsRef.current = {};
+    setState(ChatState.initialState()); setActiveId(null); setError(""); setLoading(true);
+    if (!currentUsername || !planId) { setLoading(false); return undefined; }
+    let alive = true;
+    listConversations(planId).then(async conversations => {
+      if (!alive) return;
+      const conversation = conversations.find(item => item.status !== "archived") || conversations[0];
+      if (conversation) await loadConversation(conversation.id);
+    }).catch(errorValue => { if (alive) setError(errorValue.message || "加载行程对话失败"); })
+      .finally(() => { if (alive) setLoading(false); });
+    return () => {
+      alive = false;
+      Object.values(abortsRef.current).forEach(abort => abort());
+      abortsRef.current = {};
+    };
+  }, [planId, currentUsername]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  React.useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+  }, [messages.length, runs.map(run => `${run.id}:${run.status}`).join("|")]);
+
+  const ensureConversation = async content => {
+    if (activeId) return activeId;
+    const created = await createConversation(`${plan.destination || "旅行"} · 行程调整`);
+    setActiveId(created.id);
+    return created.id;
+  };
+
+  const send = async () => {
+    const text = query.trim();
+    if (!text || (blockingRun && blockingRun.status !== "waiting_user")) return;
+    setQuery(""); setError("");
+    try {
+      if (blockingRun?.status === "waiting_user") {
+        const interactionId = blockingRun.pending_interaction?.interaction_id || blockingRun.outstanding_interaction_id;
+        if (!interactionId) throw new Error("当前任务还不能接收回复");
+        const resumed = await resumeRuntimeRun(blockingRun.id, interactionId, text);
+        setState(previous => {
+          let next = previous;
+          if (resumed.accepted_message) next = ChatState.upsertMessage(next, resumed.accepted_message);
+          return { ...next, runs: { ...next.runs, [blockingRun.id]: { ...next.runs[blockingRun.id], ...resumed } } };
+        });
+        abortsRef.current[blockingRun.id]?.();
+        delete abortsRef.current[blockingRun.id];
+        subscribeRun({ ...blockingRun, ...resumed });
+        return;
+      }
+      const conversationId = await ensureConversation(text);
+      const result = await submitConversationMessage(conversationId, text, { related_itinerary_id: planId });
+      setState(previous => {
+        let next = ChatState.upsertMessage(previous, result.message);
+        next = { ...next, runs: { ...next.runs, [result.run.id]: result.run } };
+        return next;
+      });
+      subscribeRun(result.run);
+    } catch (errorValue) {
+      setQuery(text);
+      setError(errorValue.message || "发送失败，请重试");
+    }
+  };
+
+  const controlRun = async (run, action) => {
+    try {
+      const updated = action === "cancel" ? await cancelRuntimeRun(run.id) : await retryRuntimeRun(run.id);
+      setState(previous => ({ ...previous, runs: { ...previous.runs, [updated.id]: updated } }));
+      if (action === "retry") subscribeRun(updated);
+    } catch (errorValue) { setError(errorValue.message || "操作失败"); }
+  };
+
+  const dayLabel = `Day ${dayIdx + 1}`;
+  const attractionCount = (day?.items || []).filter(item => item.type === "attraction").length;
+  const mealCount = (day?.items || []).filter(item => item.type !== "attraction").length;
+  const quickPrompts = [
+    `${dayLabel} 行程轻松一点`,
+    `优化 ${dayLabel} 的路线`,
+    day?.theme ? `围绕“${day.theme}”换一个景点` : "换一个更合适的景点",
+  ];
+  return <aside className="detail-chat-canvas" aria-label="AI 行程对话">
+    <DetailLightRays />
+    <header className="detail-chat-header">
+      <button className="detail-chat-back" onClick={onBack} aria-label="返回旅行工作区">‹</button>
+      <div className="detail-chat-title"><strong>{plan.title || `${plan.destination || "目的地"}旅行`}</strong><small><i />规划已同步到地图 · {plan.days?.length || 1} 天</small></div>
+      <div className="detail-chat-actions">
+        <div className="detail-history-anchor"><button onClick={onHistory} aria-expanded={historyOpen}>历史修改</button>
+          {historyOpen && <div className="detail-history-popover">
+            <b>关联对话</b>
+            {historyLoading ? <span>正在加载…</span> : historyItems.length ? historyItems.map(item => <span key={item.id}><strong>{item.title || "未命名对话"}</strong><small>{new Date(item.updated_at).toLocaleDateString()}</small></span>) : <span>还没有修改记录</span>}
+          </div>}
         </div>
-
-        <div className="map-col">
-          <MapPanel day={day} dayIdx={dayIdx} navPair={activeNavPair}
-            onNavClear={() => { setActiveNavKey(null); setActiveNavPair(null); }} />
+        <button onClick={onShare}>分享</button>
+        <span className="detail-ai-badge"><i>✦</i>旅行助手</span>
+      </div>
+    </header>
+    <div className="detail-chat-context" aria-label="当前行程上下文">
+      <span><UiIcon name="location" size={13} />{plan.destination || "目的地"}</span>
+      <span>{plan.date_range || "日期待定"}</span>
+      <span>{plan.travelers || plan.people || "同行信息"}</span>
+      <em>地图实时联动</em>
+    </div>
+    <main className="detail-chat-scroll" ref={scrollRef} role="log" aria-label="行程调整对话">
+      <div className="detail-chat-time">当前行程 · {plan.date_range || "日期待定"}</div>
+      <div className="detail-chat-message assistant"><span className="detail-chat-avatar">✦</span><div><small>旅行助手</small><p><b>{plan.destination || "这份行程"}</b> 已经整理好了。你可以直接告诉我想调整哪一天、哪个景点，或者希望整体节奏更松弛一些。<span className="detail-ai-note"><b><i />我正在结合右侧地图判断移动距离</b><span>修改会同时更新路线顺序、移动距离和右侧逐日安排。</span></span></p><em>已读取当前路线</em></div></div>
+      {messages.map(message => <div className={`detail-chat-message ${message.role === "user" ? "user" : "assistant"}`} key={message.id}>
+        {message.role !== "user" && <span className="detail-chat-avatar">✦</span>}
+        <div>{message.role !== "user" && <small>旅行助手</small>}<p>{message.content}</p><em>{message.role === "user" ? "刚刚" : "已结合地图上下文"}</em></div>
+      </div>)}
+      <div className="detail-chat-message assistant detail-route-summary"><span className="detail-chat-avatar"><UiIcon name="map" size={14} /></span><div><small>{dayLabel} · 当前安排</small><p><b>{day?.theme || "今天的旅行安排"}</b></p><section><span>{attractionCount} 个景点</span><span>{mealCount} 个餐饮</span><span>地图已同步</span></section></div></div>
+      {blockingRun && <div className="detail-run-card"><header><span className="detail-run-spinner" /><b>{blockingRun.status === "waiting_user" ? "需要你的回复" : "正在调整当前行程"}</b></header><p>{blockingRun.stage_label || blockingRun.pending_interaction?.prompt || "途途正在结合路线、距离和你的要求生成修改方案。"}</p>{blockingRun.status !== "waiting_user" && <button onClick={() => controlRun(blockingRun, "cancel")}>停止</button>}</div>}
+      {!blockingRun && failedRun && <div className="detail-run-card failed"><header><UiIcon name="alert" size={15} /><b>这次修改没有完成</b></header><p>{failedRun.error_public?.message || "可以保留输入并重新尝试。"}</p><button onClick={() => controlRun(failedRun, "retry")}>重新尝试</button></div>}
+      {loading && <div className="detail-chat-loading">正在恢复关联对话…</div>}
+      {error && <div className="detail-chat-error" role="alert">{error}</div>}
+    </main>
+    <div className="detail-composer-wrap">
+      <div className="detail-quick-row">{quickPrompts.map(prompt => <button key={prompt} onClick={() => setQuery(prompt)}>{prompt}</button>)}</div>
+      {editing && <p className="detail-edit-notice"><UiIcon name="edit" size={13} />正在手动编辑，保存后再提交对话修改。</p>}
+      <div className="detail-composer">
+        <textarea value={query} onChange={event => setQuery(event.target.value)}
+          disabled={editing || (!!blockingRun && blockingRun.status !== "waiting_user")}
+          onKeyDown={event => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); send(); } }}
+          placeholder={blockingRun?.status === "waiting_user" ? "回答上方问题，继续这次修改…" : blockingRun ? "行程调整中…" : "继续修改行程，例如：Day 3 不要安排太满…"} />
+        <div className="detail-composer-footer"><button aria-label="添加"><UiIcon name="plus" size={15} /></button><button aria-label="引用地图"><UiIcon name="location" size={15} /></button><span>规划模式</span><em>Enter 发送 · Shift+Enter 换行</em>
+          <button className="send" onClick={blockingRun && blockingRun.status !== "waiting_user" ? () => controlRun(blockingRun, "cancel") : send}
+            disabled={editing || (blockingRun?.status === "waiting_user" ? !query.trim() : !blockingRun && !query.trim())}
+            aria-label={blockingRun && blockingRun.status !== "waiting_user" ? "停止当前任务" : "发送消息"}><UiIcon name={blockingRun && blockingRun.status !== "waiting_user" ? "stop" : "arrow-up"} size={16} /></button>
         </div>
       </div>
-
-      {!editing && (
-        <div className="query-card" style={{ margin: "30px auto 0", maxWidth: 760 }}>
-          <div className="query-label">
-            <span className="mode-dot" style={{ background: "var(--second)" }}></span>
-            对行程有意见？直接说，我来改
-          </div>
-          <div style={{ display: "flex", gap: 12, alignItems: "flex-end" }}>
-            <textarea className="query-textarea" rows="1" style={{ minHeight: 30 }}
-              placeholder="例如：第 2 天把玄武湖换成颐和路，景点别太多"
-              value={modQuery} onChange={(e) => setModQuery(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) startModify(); }}
-            />
-            <button className="go-btn" onClick={startModify} disabled={!modQuery.trim()}>
-              修改规划 <span className="arrow">→</span>
-            </button>
-          </div>
-        </div>
-      )}
     </div>
-  </React.Fragment>
-  );
+    {shareNotice && <div className="detail-share-notice" role="status">{shareNotice}</div>}
+  </aside>;
 }
 
 /* ── 历史行程页 ───────────────────────────────── */
@@ -2006,7 +1959,7 @@ function TagEditor({ label, hint, tags, onChange }) {
       <div className="tag-editor">
         {tags.map((t) => (
           <span key={t} className="tag">{t}
-            <button onClick={() => remove(t)} aria-label={`删除 ${t}`}>✕</button>
+            <button onClick={() => remove(t)} aria-label={`删除 ${t}`}><UiIcon name="close" size={12} /></button>
           </span>
         ))}
         <input className="tag-input" value={val} placeholder="输入后回车添加…"
@@ -2045,7 +1998,7 @@ function MemoryFactCard({ fact, candidate = false, onChanged }) {
   };
   return (
     <article className={`memory-fact-card ${candidate ? "candidate" : "active"}`}>
-      <div className="memory-fact-mark" aria-hidden="true">{candidate ? "?" : "✓"}</div>
+      <div className="memory-fact-mark" aria-hidden="true">{candidate ? "?" : <UiIcon name="check" size={14} />}</div>
       <div className="memory-fact-body">
         <div className="memory-fact-meta">
           <span>{MEMORY_CATEGORY_LABELS[fact.category] || fact.category}</span>
@@ -2218,7 +2171,7 @@ function SweepPreviewPage() {
     <div className="sweep-preview-page">
       {/* 顶部导航：文件 + trial 下拉 */}
       <div className="sweep-nav">
-        <span className="sweep-nav-title">🧪 测试预览</span>
+        <span className="sweep-nav-title"><UiIcon name="flask" size={15} />测试预览</span>
         <select
           value={selFile || ""}
           onChange={e => { setSelFile(e.target.value); setSelIdx(0); }}
@@ -2238,7 +2191,7 @@ function SweepPreviewPage() {
         >
           {fileTrials.map(t => (
             <option key={t.idx} value={t.idx}>
-              {t.crash ? "💥" : t.pass ? "✅" : "❌"} {t.dest} / {t.pref} / trial {t.idx + 1}
+              {t.crash ? "异常" : t.pass ? "通过" : "未通过"} · {t.dest} / {t.pref} / trial {t.idx + 1}
             </option>
           ))}
         </select>
@@ -2253,7 +2206,7 @@ function SweepPreviewPage() {
 
       {!loading && trial?.crash && (
         <div className="sweep-crash">
-          💥 该 trial 崩溃：{trial.crash_reason} — {trial.crash_detail || ""}
+          <UiIcon name="alert" size={16} />该 trial 崩溃：{trial.crash_reason} — {trial.crash_detail || ""}
         </div>
       )}
 
@@ -2272,7 +2225,7 @@ function SweepPreviewPage() {
               <div className="weather-strip">
                 {adapted.weather.map((w, i) => (
                   <div key={i} className="weather-cell">
-                    <span className="w-ico">{w.icon}</span>
+                    <span className="w-ico"><WeatherGlyph value={w.icon} /></span>
                     <span>
                       <div className="w-day">{w.day}</div>
                       <div className="w-temp">
@@ -2339,7 +2292,131 @@ function SweepPreviewPage() {
   );
 }
 
-/* ── 首页（产品介绍落地页） ──────────────────────── */
+/* ── 首页 / 计划中心 ─────────────────────────────── */
+function DashboardPlanCard({ trip, onOpen }) {
+  const [revealed, setRevealed] = React.useState(false);
+  const cardRef = React.useRef(null);
+
+  React.useEffect(() => {
+    if (typeof IntersectionObserver === "undefined") { setRevealed(true); return undefined; }
+    const card = cardRef.current;
+    if (!card) return undefined;
+    const observer = new IntersectionObserver(entries => {
+      if (entries.some(entry => entry.isIntersecting)) {
+        setRevealed(true);
+        observer.disconnect();
+      }
+    }, { threshold: .16, rootMargin: "0px 0px -7%" });
+    observer.observe(card);
+    return () => observer.disconnect();
+  }, []);
+
+  const destination = trip.destination || "旅行";
+  const days = trip.start_date && trip.end_date ? Math.ceil((new Date(trip.end_date) - new Date(trip.start_date)) / 86400000) + 1 : 1;
+  const date = trip.start_date && trip.end_date ? `${trip.start_date.slice(5).replace("-", ".")} — ${trip.end_date.slice(5).replace("-", ".")}` : "日期待定";
+  return <button ref={cardRef} className={`dashboard-plan-card ${revealed ? "is-revealed" : ""}`} onFocus={() => setRevealed(true)} onClick={onOpen}>
+    <ItineraryCover className="dashboard-plan-image" planId={trip.id} />
+    <span className="dashboard-plan-info"><i>{trip.parent_id ? `修改版 V${trip.version}` : "旅行计划"}</i><strong>{destination}{` · ${days}日游`}</strong><small>{date} · {days} 天</small><em>查看行程 <UiIcon name="arrow-right" size={14} /></em></span>
+  </button>;
+}
+
+function DashboardPage({ currentUsername, onStart, onFocusComposer, onDraftChange, onOpenPlan, onOpenWorkspace }) {
+  const [draft, setDraft] = React.useState("");
+  const [plans, setPlans] = React.useState([]);
+  const [loadingPlans, setLoadingPlans] = React.useState(false);
+  const [plansCursor, setPlansCursor] = React.useState(null);
+  const [loadingMorePlans, setLoadingMorePlans] = React.useState(false);
+  const [plansError, setPlansError] = React.useState("");
+  const plansSentinelRef = React.useRef(null);
+  const cities = ["北京", "上海", "南京", "苏州", "广州", "杭州", "成都", "重庆"];
+
+  const loadPlans = React.useCallback(async (cursor = null) => {
+    if (!currentUsername || (cursor && loadingMorePlans)) return;
+    cursor ? setLoadingMorePlans(true) : setLoadingPlans(true);
+    setPlansError("");
+    try {
+      const page = await getHistoryPage(6, cursor);
+      setPlans(previous => cursor
+        ? [...previous, ...page.items.filter(item => !previous.some(existing => existing.id === item.id))]
+        : page.items
+      );
+      setPlansCursor(page.next_cursor);
+    } catch (error) {
+      setPlansError(error.message || "历史行程暂时无法加载");
+    } finally {
+      cursor ? setLoadingMorePlans(false) : setLoadingPlans(false);
+    }
+  }, [currentUsername, loadingMorePlans]);
+
+  React.useEffect(() => {
+    if (!currentUsername) {
+      setPlans([]); setPlansCursor(null); setPlansError("");
+      return;
+    }
+    loadPlans();
+  }, [currentUsername]); // 登录身份变化时重置首页的计划流
+
+  React.useEffect(() => {
+    if (!plansCursor || loadingMorePlans || typeof IntersectionObserver === "undefined") return undefined;
+    const sentinel = plansSentinelRef.current;
+    if (!sentinel) return undefined;
+    const observer = new IntersectionObserver(entries => {
+      if (entries.some(entry => entry.isIntersecting)) loadPlans(plansCursor);
+    }, { rootMargin: "280px 0px" });
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [plansCursor, loadingMorePlans, loadPlans, plans.length]);
+
+  const begin = (text = draft) => {
+    const prompt = text.trim();
+    onStart?.(prompt);
+  };
+
+  return <main className="dashboard-page page-fade">
+    <section className="dashboard-hero" aria-labelledby="dashboard-title">
+      <div className="dashboard-landscape" aria-hidden="true"><i /><i /><i /></div>
+      <div className="dashboard-hero-copy">
+        <h1 id="dashboard-title">开始计划下一段旅程</h1>
+        <p>1分钟创建行程，或帮你一键解析</p>
+      </div>
+      <div className="dashboard-composer">
+        <div className="dashboard-mode-tabs" role="tablist" aria-label="输入模式"><button role="tab" aria-selected="true">⌕　计划</button><button role="tab" aria-selected="false">⌁　解析</button></div>
+        <textarea value={draft} onFocus={onFocusComposer} onChange={event => { setDraft(event.target.value); onDraftChange?.(event.target.value); }}
+          aria-label="描述旅行想法" placeholder="描述对目的地的旅行想法，智能生成行程计划"
+          onKeyDown={event => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); begin(); } }} />
+        <div className="dashboard-composer-foot">
+          <div className="dashboard-style-chips">
+            {["北京", "上海", "南京", "苏州", "广州", "韩国"].map(label => <button key={label} onClick={() => setDraft(`${label}，`)}>{label}</button>)}
+          </div>
+          <button className="dashboard-send" onClick={() => begin()} aria-label="开始旅行规划"><UiIcon name="arrow-up" size={21} /></button>
+        </div>
+      </div>
+    </section>
+
+    <section className="dashboard-cities" aria-label="热门目的地">
+      <strong>热门目的地</strong>
+      <div>{cities.map(city => <button key={city} onClick={() => setDraft(`${city}，`)}>{city}</button>)}</div>
+    </section>
+
+    <section className="dashboard-plans" aria-labelledby="dashboard-plans-title">
+      <div className="dashboard-section-head"><div><span>MY PLANS</span><h2 id="dashboard-plans-title">我的计划</h2></div><button onClick={onOpenWorkspace}>进入旅行工作区 <UiIcon name="arrow-right" size={15} /></button></div>
+      {!currentUsername && <div className="dashboard-plan-empty">登录后，在这里回看和继续编辑每一段旅行。</div>}
+      {currentUsername && loadingPlans && <div className="dashboard-plan-grid dashboard-loading">{[1, 2, 3, 4].map(item => <i key={item} />)}</div>}
+      {currentUsername && !loadingPlans && !plans.length && !plansError && <div className="dashboard-plan-empty">还没有保存的行程。先说说你想去哪里吧。</div>}
+      {currentUsername && !loadingPlans && !!plansError && <div className="dashboard-plan-empty dashboard-plan-error">{plansError}<button onClick={() => loadPlans()}>重新加载</button></div>}
+      {!!plans.length && <div className="dashboard-plan-grid">
+        {plans.map(trip => <DashboardPlanCard key={trip.id} trip={trip} onOpen={() => onOpenPlan?.(trip.id)} />)}
+      </div>}
+      {!!plans.length && <div className="dashboard-plans-more" ref={plansSentinelRef} aria-live="polite">
+        {loadingMorePlans && <span>正在展开更多计划…</span>}
+        {!loadingMorePlans && !!plansError && <button onClick={() => loadPlans(plansCursor)}>加载失败，重新尝试</button>}
+        {!loadingMorePlans && !plansError && !plansCursor && <span>已展示全部计划</span>}
+      </div>}
+    </section>
+  </main>;
+}
+
+/* ── 首页（产品介绍落地页，保留供展示） ─────────── */
 function HomePage({ onStart }) {
   const videoRef = React.useRef(null);
 
@@ -2515,4 +2592,4 @@ function HomePage({ onStart }) {
   );
 }
 
-Object.assign(window, { PlanPage, TripDetailPage, HistoryPage, ProfilePage, AuthModal, SweepPreviewPage });
+Object.assign(window, { ChatPage, LegacyTripDetailPage, HistoryPage, ProfilePage, AuthModal, SweepPreviewPage });

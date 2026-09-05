@@ -23,7 +23,20 @@ export type ConversationMessage = {
   relatedRunId?: string | null;
   relatedItineraryId?: string | null;
   createdAt?: string;
+  artifacts?: MessageArtifact[];
 };
+
+export type ItineraryCardArtifact = {
+  type: 'itinerary_collection';
+  title: string;
+  match_kind: 'exact' | 'near' | 'mixed';
+  items: Array<{
+    itinerary_id: string; root_id: string; version: number; destination: string;
+    duration_days?: number | null; start_date?: string | null; end_date?: string | null;
+    created_at: string; is_modified: boolean; highlights: string[];
+  }>;
+};
+export type MessageArtifact = ItineraryCardArtifact;
 
 export type ConversationSummary = {
   id: string;
@@ -126,6 +139,16 @@ export type RunEvent = {
   kind: 'messages' | 'custom' | 'error' | 'heartbeat' | 'end';
   payload: Record<string, unknown>;
   durable?: boolean;
+};
+
+export type AgentActivity = {
+  kind: 'agent.activity.started' | 'agent.activity.progress' | 'agent.activity.completed' | 'agent.activity.failed';
+  activity_id: string;
+  activity_type: 'memory_lookup' | 'planning_context' | 'itinerary_search' | 'itinerary_read'
+    | 'brief_update' | 'planning_submit' | 'revision_start' | 'run_control';
+  label: string;
+  stage?: string | null;
+  stats?: Record<string, number | boolean>;
 };
 
 export type AppSessionState = {

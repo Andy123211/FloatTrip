@@ -9,122 +9,6 @@ from datetime import datetime, timezone
 from typing import Any
 
 
-# ─── 用户偏好 ────────────────────────────────────────────────
-
-def get_user_profile(user_id: str, conn: sqlite3.Connection) -> dict:
-    row = conn.execute(
-        "SELECT attraction_prefs, food_prefs, habit_prefs, visited_destinations "
-        "FROM user_profiles WHERE user_id=?",
-        (user_id,),
-    ).fetchone()
-    if not row:
-        return {"attraction_prefs": [], "food_prefs": [], "habit_prefs": [], "visited_destinations": []}
-    return {
-        "attraction_prefs":     json.loads(row["attraction_prefs"] or "[]"),
-        "food_prefs":           json.loads(row["food_prefs"] or "[]"),
-        "habit_prefs":          json.loads(row["habit_prefs"] or "[]"),
-        "visited_destinations": json.loads(row["visited_destinations"] or "[]"),
-    }
-
-
-def set_user_profile(user_id: str, profile: dict, conn: sqlite3.Connection) -> None:
-    """整体覆盖式更新用户画像（供用户手动编辑）。每个字段为字符串列表，去空去重。"""
-    def clean(items) -> list:
-        seen, out = set(), []
-        for it in (items or []):
-            s = str(it).strip()
-            if s and s not in seen:
-                seen.add(s)
-                out.append(s)
-        return out[:20]
-
-    now = datetime.now(timezone.utc).isoformat()
-    conn.execute(
-        """INSERT INTO user_profiles (user_id, attraction_prefs, food_prefs, habit_prefs, visited_destinations, updated_at)
-           VALUES (?,?,?,?,?,?)
-           ON CONFLICT(user_id) DO UPDATE SET
-               attraction_prefs=excluded.attraction_prefs,
-               food_prefs=excluded.food_prefs,
-               habit_prefs=excluded.habit_prefs,
-               visited_destinations=excluded.visited_destinations,
-               updated_at=excluded.updated_at""",
-        (
-            user_id,
-            json.dumps(clean(profile.get("attraction_prefs")), ensure_ascii=False),
-            json.dumps(clean(profile.get("food_prefs")), ensure_ascii=False),
-            json.dumps(clean(profile.get("habit_prefs")), ensure_ascii=False),
-            json.dumps(clean(profile.get("visited_destinations")), ensure_ascii=False),
-            now,
-        ),
-    )
-
-
-_PREFERENCE_FIELDS = {"attraction_prefs", "food_prefs", "habit_prefs"}
-
-
-def search_profile_fields(user_id: str, fields: list[str], conn: sqlite3.Connection) -> dict:
-    """按字段名列表查询偏好画像，只返回指定字段（不含 visited_destinations）。
-    fields 可选：attraction_prefs, food_prefs, habit_prefs
-    """
-    profile = get_user_profile(user_id, conn)
-    return {f: profile[f] for f in fields if f in _PREFERENCE_FIELDS and f in profile}
-
-
-def format_profile_for_prompt(profile: dict) -> str:
-    parts = []
-    if profile.get("attraction_prefs"):
-        parts.append("景点偏好：" + "、".join(profile["attraction_prefs"]))
-    if profile.get("food_prefs"):
-        parts.append("餐饮偏好：" + "、".join(profile["food_prefs"]))
-    if profile.get("habit_prefs"):
-        parts.append("游玩节奏：" + "、".join(profile["habit_prefs"]))
-    if profile.get("visited_destinations"):
-        parts.append("去过的城市：" + "、".join(profile["visited_destinations"]))
-    return "\n".join(parts)
-
-
-def extract_and_update_preferences(user_id: str, plan: dict, conn: sqlite3.Connection) -> None:
-    """从 final_plan 提取偏好，去重追加到 user_profiles。"""
-    prefs = plan.get("preferences", {})
-    destination = plan.get("destination", "")
-
-    existing = get_user_profile(user_id, conn)
-
-    def merge(existing_list: list, new_str: str) -> list:
-        if not new_str:
-            return existing_list
-        new_items = [s.strip() for s in new_str.replace("、", "/").replace("，", "/").split("/") if s.strip()]
-        merged = list(existing_list)
-        for item in new_items:
-            if item not in merged:
-                merged.append(item)
-        return merged[:20]  # 最多保留 20 条
-
-    attraction = merge(existing["attraction_prefs"], prefs.get("attraction", ""))
-    food       = merge(existing["food_prefs"],       prefs.get("food", ""))
-    habit      = merge(existing["habit_prefs"],      prefs.get("habit", ""))
-    visited    = list(existing["visited_destinations"])
-    if destination and destination not in visited:
-        visited.append(destination)
-        visited = visited[-20:]
-
-    now = datetime.now(timezone.utc).isoformat()
-    conn.execute(
-        """INSERT INTO user_profiles (user_id, attraction_prefs, food_prefs, habit_prefs, visited_destinations, updated_at)
-           VALUES (?,?,?,?,?,?)
-           ON CONFLICT(user_id) DO UPDATE SET
-               attraction_prefs=excluded.attraction_prefs,
-               food_prefs=excluded.food_prefs,
-               habit_prefs=excluded.habit_prefs,
-               visited_destinations=excluded.visited_destinations,
-               updated_at=excluded.updated_at""",
-        (user_id, json.dumps(attraction, ensure_ascii=False),
-         json.dumps(food, ensure_ascii=False),
-         json.dumps(habit, ensure_ascii=False),
-         json.dumps(visited, ensure_ascii=False), now),
-    )
-
-
 # ─── 行程保存 / 查询 ─────────────────────────────────────────
 
 def save_itinerary(
@@ -173,7 +57,7 @@ def save_itinerary(
 
 def load_itinerary(plan_id: str, conn: sqlite3.Connection) -> dict | None:
     row = conn.execute(
-        "SELECT id,parent_id,root_id,version,plan_json,modification_notes,planner_state_json "
+        "SELECT id,parent_id,root_id,version,lock_version,plan_json,modification_notes,planner_state_json "
         "FROM itineraries WHERE id=?",
         (plan_id,),
     ).fetchone()
@@ -185,52 +69,30 @@ def load_itinerary(plan_id: str, conn: sqlite3.Connection) -> dict | None:
         "parent_id": row["parent_id"],
         "root_id": row["root_id"] or row["id"],
         "version": int(row["version"] or 1),
+        "lock_version": int(row["lock_version"] or 1),
         "modification_notes": row["modification_notes"],
         "planner_state": json.loads(row["planner_state_json"]) if row["planner_state_json"] else None,
     }
 
 
-# ─── Pending 修改（Human-in-the-Loop 暂存）────────────────────
-
-def save_pending_modification(
+def update_plan_json(
+    plan_id: str,
     user_id: str,
-    state_dict: dict,
+    new_plan: dict,
     conn: sqlite3.Connection,
-) -> str:
-    pending_id = str(uuid.uuid4())
-    now = datetime.now(timezone.utc).isoformat()
-    conn.execute(
-        "INSERT INTO pending_modifications (id, user_id, state_json, created_at) VALUES (?,?,?,?)",
-        (pending_id, user_id, json.dumps(state_dict, ensure_ascii=False), now),
-    )
-    return pending_id
-
-
-def load_pending_modification(
-    pending_id: str,
-    conn: sqlite3.Connection,
-) -> dict | None:
-    row = conn.execute(
-        "SELECT state_json, user_id FROM pending_modifications WHERE id=?",
-        (pending_id,),
-    ).fetchone()
-    if not row:
-        return None
-    return {
-        "state": json.loads(row["state_json"]),
-        "user_id": row["user_id"],
-    }
-
-
-def delete_pending_modification(pending_id: str, conn: sqlite3.Connection) -> None:
-    conn.execute("DELETE FROM pending_modifications WHERE id=?", (pending_id,))
-
-
-def update_plan_json(plan_id: str, user_id: str, new_plan: dict, conn: sqlite3.Connection) -> bool:
-    """更新指定行程的 plan_json，校验 user_id 所有权。返回 True 表示更新成功。"""
+    *,
+    expected_lock_version: int,
+) -> bool:
+    """用乐观锁更新行程；版本已变化时不覆盖其他请求的编辑。"""
     cur = conn.execute(
-        "UPDATE itineraries SET plan_json=? WHERE id=? AND user_id=?",
-        (json.dumps(new_plan, ensure_ascii=False), plan_id, user_id),
+        "UPDATE itineraries SET plan_json=?,lock_version=lock_version+1 "
+        "WHERE id=? AND user_id=? AND lock_version=?",
+        (
+            json.dumps(new_plan, ensure_ascii=False),
+            plan_id,
+            user_id,
+            expected_lock_version,
+        ),
     )
     return cur.rowcount > 0
 
@@ -242,6 +104,34 @@ def list_itineraries(user_id: str, conn: sqlite3.Connection) -> list[dict[str, A
         (user_id,),
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+def list_itineraries_page(
+    user_id: str,
+    conn: sqlite3.Connection,
+    *,
+    limit: int,
+    cursor: tuple[str, str] | None = None,
+) -> tuple[list[dict[str, Any]], tuple[str, str] | None]:
+    """Return a stable, cursor-paginated history slice ordered newest first."""
+    params: list[Any] = [user_id]
+    where = "WHERE user_id=?"
+    if cursor:
+        where += " AND (created_at < ? OR (created_at = ? AND id < ?))"
+        params.extend([cursor[0], cursor[0], cursor[1]])
+    params.append(limit + 1)
+    rows = conn.execute(
+        """SELECT id, parent_id, root_id, version, destination, start_date, end_date, created_at
+           FROM itineraries """ + where + " ORDER BY created_at DESC, id DESC LIMIT ?",
+        params,
+    ).fetchall()
+    has_more = len(rows) > limit
+    items = [dict(row) for row in rows[:limit]]
+    next_cursor = None
+    if has_more and items:
+        tail = items[-1]
+        next_cursor = (str(tail["created_at"]), str(tail["id"]))
+    return items, next_cursor
 
 
 def summarize_plan_for_prompt(plan: dict) -> str:

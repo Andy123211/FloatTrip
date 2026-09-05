@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 
 from app.core.auth import create_token
 from app.core.database import configure_database, get_conn, get_db_path, init_db
+from app.core.memory import save_itinerary
 
 
 class ApplyAllMemoryLlm:
@@ -86,6 +87,74 @@ class RuntimeApiTests(unittest.TestCase):
             404,
         )
 
+    def test_bound_itinerary_message_checks_owner_and_freezes_target(self):
+        conversation = self.client.post(
+            "/api/conversations", headers=self.owner_headers, json={}
+        ).json()
+        with get_conn() as conn:
+            owned_id = save_itinerary(
+                "owner", {"destination": "南京"}, "南京旅行", conn,
+                planner_state={"query": "南京旅行"},
+            )
+            other_id = save_itinerary(
+                "other", {"destination": "苏州"}, "苏州旅行", conn,
+                planner_state={"query": "苏州旅行"},
+            )
+        with patch("app.api.runtime_routes.scheduler.notify"):
+            accepted = self.client.post(
+                f"/api/conversations/{conversation['id']}/messages",
+                headers=self.owner_headers,
+                json={
+                    "content": "第二天轻松一点",
+                    "related_itinerary_id": owned_id,
+                },
+            )
+            forbidden = self.client.post(
+                f"/api/conversations/{conversation['id']}/messages",
+                headers=self.owner_headers,
+                json={
+                    "content": "修改别人的行程",
+                    "related_itinerary_id": other_id,
+                },
+            )
+        self.assertEqual(accepted.status_code, 202)
+        self.assertEqual(
+            accepted.json()["run"]["request_snapshot"]["related_itinerary_id"],
+            owned_id,
+        )
+        self.assertEqual(forbidden.status_code, 404)
+
+        related = self.client.get(
+            "/api/conversations",
+            params={"related_itinerary_id": owned_id},
+            headers=self.owner_headers,
+        )
+        self.assertEqual(related.status_code, 200)
+        self.assertEqual([item["id"] for item in related.json()], [conversation["id"]])
+        self.assertEqual(
+            self.client.get(
+                "/api/conversations",
+                params={"related_itinerary_id": owned_id},
+                headers=self.other_headers,
+            ).json(),
+            [],
+        )
+
+    def test_removed_legacy_plan_endpoints_return_404(self):
+        legacy_plan = self.client.post(
+            "/api/plan/stream",
+            headers=self.owner_headers,
+            json={"query": "南京旅行"},
+        )
+        legacy_confirm = self.client.post(
+            "/api/plan/confirm_modification",
+            headers=self.owner_headers,
+            json={"pending_id": "old"},
+        )
+
+        self.assertEqual(legacy_plan.status_code, 404)
+        self.assertEqual(legacy_confirm.status_code, 404)
+
     def test_conversation_view_endpoint_clears_unread_and_checks_owner(self):
         from app.runtime.models import RunKind, RunStatus
         from app.runtime.repositories import RunRepository
@@ -137,6 +206,7 @@ class RuntimeApiTests(unittest.TestCase):
                 "days": 5,
                 "start_date": "2026-10-01",
                 "end_date": "2026-10-05",
+                "trip_focus": "sights_first",
             },
         )
         with patch("app.api.runtime_routes.scheduler.notify"):
@@ -169,7 +239,7 @@ class RuntimeApiTests(unittest.TestCase):
         )
         brief = PlanningBriefRepository().upsert_active(
             "owner", conversation["id"],
-            {"destination": "东京", "start_date": "2026-09-01", "end_date": "2026-09-03"},
+            {"destination": "东京", "start_date": "2026-09-01", "end_date": "2026-09-03", "trip_focus": "sights_first"},
         )
         previous_llm = chat_service.planning_memory._llm
         chat_service.planning_memory._llm = ApplyAllMemoryLlm()
@@ -209,7 +279,7 @@ class RuntimeApiTests(unittest.TestCase):
             self.assertEqual(snapshot["memory_context"]["revision"], revision)
             self.assertEqual(
                 [item["value_text"] for item in snapshot["effective_constraints"]],
-                ["每天最多三个景点"],
+                ["每天最多三个景点", "景点为主，餐饮仅作就近用餐"],
             )
         finally:
             chat_service.planning_memory._llm = previous_llm
@@ -226,6 +296,7 @@ class RuntimeApiTests(unittest.TestCase):
                         "days": 2,
                         "start_date": "2026-08-01",
                         "end_date": "2026-08-02",
+                        "trip_focus": "sights_first",
                     },
                 },
             ).json()
@@ -421,6 +492,7 @@ class RuntimeApiTests(unittest.TestCase):
         request = {
             "destination": "苏州", "days": 2,
             "start_date": "2026-09-01", "end_date": "2026-09-02",
+            "trip_focus": "sights_first",
         }
         from app.runtime.container import chat_service
         previous_llm = chat_service.planning_memory._llm

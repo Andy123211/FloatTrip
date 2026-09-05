@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from app.core.database import get_conn
+from app.chat.artifacts import validate_message_artifacts
 from app.core.planning_brief import required_brief_fields
 from app.core.planning_constraints import build_brief_projection, normalize_brief_data
 from app.core.travel_memory import (
@@ -23,6 +24,7 @@ from app.runtime.models import (
     RunKind,
     RunStatus,
     TERMINAL_STATUSES,
+    concurrency_key,
     validate_transition,
 )
 
@@ -43,18 +45,24 @@ class OwnedResourceNotFound(LookupError):
     pass
 
 
+class ConversationRunActive(ValueError):
+    def __init__(self, run: dict[str, Any]):
+        super().__init__("conversation_run_active")
+        self.run = run
+
+
 class ConversationRepository:
     _ATTENTION_COLUMNS = """
         CASE WHEN c.status='active' AND EXISTS(
             SELECT 1 FROM runs r
             WHERE r.conversation_id=c.id AND r.user_id=c.user_id
-              AND r.kind IN ('travel_plan','revision')
+              AND r.kind IN ('chat','travel_plan','revision')
               AND r.status IN ('queued','running')
         ) THEN 1 ELSE 0 END AS has_active_planning,
         CASE WHEN c.status='active' AND EXISTS(
             SELECT 1 FROM runs r
             WHERE r.conversation_id=c.id AND r.user_id=c.user_id
-              AND r.kind IN ('travel_plan','revision')
+              AND r.kind IN ('chat','travel_plan','revision')
               AND r.status='waiting_user'
         ) THEN 1 ELSE 0 END AS has_waiting_user,
         CASE WHEN c.status='active' AND EXISTS(
@@ -87,6 +95,14 @@ class ConversationRepository:
             result[field] = bool(result.get(field))
         return result
 
+    @staticmethod
+    def _decode_message(row: sqlite3.Row | dict[str, Any]) -> dict[str, Any]:
+        result = dict(row)
+        result["artifacts"] = validate_message_artifacts(
+            _loads(result.pop("artifacts_json", None), [])
+        )
+        return result
+
     def create(self, user_id: str, title: str = "") -> dict[str, Any]:
         conversation_id = str(uuid.uuid4())
         now = utcnow()
@@ -111,15 +127,39 @@ class ConversationRepository:
             raise OwnedResourceNotFound("conversation not found")
         return self._decode(row)
 
-    def list(self, user_id: str, limit: int = 50) -> list[dict[str, Any]]:
+    def list(
+        self,
+        user_id: str,
+        limit: int = 50,
+        related_itinerary_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        related_filter = ""
+        args: list[Any] = [user_id]
+        if related_itinerary_id:
+            related_filter = """
+                AND (
+                    EXISTS(
+                        SELECT 1 FROM messages m
+                        WHERE m.conversation_id=c.id AND m.user_id=c.user_id
+                          AND m.related_itinerary_id=?
+                    )
+                    OR EXISTS(
+                        SELECT 1 FROM runs rr
+                        WHERE rr.conversation_id=c.id AND rr.user_id=c.user_id
+                          AND rr.result_itinerary_id=?
+                    )
+                )
+            """
+            args.extend([related_itinerary_id, related_itinerary_id])
+        args.append(max(1, min(limit, 100)))
         with get_conn(self.db_path) as conn:
             rows = conn.execute(
                 "SELECT c.*,COALESCE(cm.finalization_status,'none') AS finalization_status,"
                 "cm.last_error_code AS memory_error_code," + self._ATTENTION_COLUMNS + " "
                 "FROM conversations c LEFT JOIN conversation_memory_states cm "
-                "ON cm.conversation_id=c.id WHERE c.user_id=? "
+                "ON cm.conversation_id=c.id WHERE c.user_id=? " + related_filter +
                 "ORDER BY c.updated_at DESC,c.id DESC LIMIT ?",
-                (user_id, max(1, min(limit, 100))),
+                args,
             ).fetchall()
         return [self._decode(row) for row in rows]
 
@@ -142,11 +182,13 @@ class ConversationRepository:
         *,
         related_run_id: str | None = None,
         related_itinerary_id: str | None = None,
+        artifacts: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         if role not in {"user", "assistant", "system"}:
             raise ValueError("invalid message role")
         message_id = str(uuid.uuid4())
         now = utcnow()
+        safe_artifacts = validate_message_artifacts(artifacts)
         with get_conn(self.db_path) as conn:
             conn.execute("BEGIN IMMEDIATE")
             owner = conn.execute(
@@ -165,14 +207,15 @@ class ConversationRepository:
                 (conversation_id,),
             ).fetchone()[0]
             conn.execute(
-                "INSERT INTO messages(id,conversation_id,user_id,role,content,sequence,"
-                "related_run_id,related_itinerary_id,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO messages(id,conversation_id,user_id,role,content,artifacts_json,sequence,"
+                "related_run_id,related_itinerary_id,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
                 (
                     message_id,
                     conversation_id,
                     user_id,
                     role,
                     content,
+                    _json(safe_artifacts),
                     sequence,
                     related_run_id,
                     related_itinerary_id,
@@ -202,11 +245,88 @@ class ConversationRepository:
             "user_id": user_id,
             "role": role,
             "content": content,
+            "artifacts": safe_artifacts,
             "sequence": sequence,
             "related_run_id": related_run_id,
             "related_itinerary_id": related_itinerary_id,
             "created_at": now,
         }
+
+    def add_user_message_and_run(
+        self,
+        user_id: str,
+        conversation_id: str,
+        content: str,
+        *,
+        related_run_id: str | None = None,
+        related_itinerary_id: str | None = None,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Atomically accept one user turn and create its Chat Run."""
+        message_id = str(uuid.uuid4())
+        run_id = str(uuid.uuid4())
+        now = utcnow()
+        with get_conn(self.db_path) as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            owner = conn.execute(
+                "SELECT title,status FROM conversations WHERE id=? AND user_id=?",
+                (conversation_id, user_id),
+            ).fetchone()
+            if not owner:
+                raise OwnedResourceNotFound("conversation not found")
+            if owner["status"] == "archived":
+                raise ArchivedConversationError("conversation_archived")
+            active = conn.execute(
+                "SELECT * FROM runs WHERE conversation_id=? AND user_id=? "
+                "AND kind IN ('chat','travel_plan','revision') "
+                "AND status IN ('queued','running','waiting_user') "
+                "ORDER BY created_at DESC,id DESC LIMIT 1",
+                (conversation_id, user_id),
+            ).fetchone()
+            if active:
+                raise ConversationRunActive(_decode_run(active))
+            ConversationMemoryRepository(self.db_path).ensure_snapshot(
+                user_id, conversation_id, conn
+            )
+            sequence = conn.execute(
+                "SELECT COALESCE(MAX(sequence),0)+1 FROM messages WHERE conversation_id=?",
+                (conversation_id,),
+            ).fetchone()[0]
+            conn.execute(
+                "INSERT INTO messages(id,conversation_id,user_id,role,content,artifacts_json,sequence,"
+                "related_run_id,related_itinerary_id,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                (message_id, conversation_id, user_id, "user", content, "[]", sequence,
+                 related_run_id, related_itinerary_id, now),
+            )
+            request = {
+                "message_id": message_id,
+                "text": content,
+                "related_run_id": related_run_id,
+                "related_itinerary_id": related_itinerary_id,
+            }
+            run = RunRepository(self.db_path).insert(
+                conn, run_id=run_id, user_id=user_id, kind=RunKind.CHAT,
+                concurrency_key=concurrency_key(RunKind.CHAT, conversation_id=conversation_id),
+                request_snapshot=request, conversation_id=conversation_id,
+            )
+            title = str(owner["title"] or "").strip()
+            if sequence == 1 and title in {"", "新的旅行对话"}:
+                conn.execute(
+                    "UPDATE conversations SET title=?,updated_at=? WHERE id=?",
+                    (content.strip()[:24], now, conversation_id),
+                )
+            else:
+                conn.execute(
+                    "UPDATE conversations SET updated_at=? WHERE id=?",
+                    (now, conversation_id),
+                )
+        message = {
+            "id": message_id, "conversation_id": conversation_id,
+            "user_id": user_id, "role": "user", "content": content,
+            "artifacts": [], "sequence": sequence,
+            "related_run_id": related_run_id,
+            "related_itinerary_id": related_itinerary_id, "created_at": now,
+        }
+        return message, run
 
     def messages(
         self,
@@ -223,7 +343,7 @@ class ConversationRepository:
                 "ORDER BY sequence LIMIT ?",
                 (conversation_id, max(0, after_sequence), max(1, min(limit, 200))),
             ).fetchall()
-        return [dict(row) for row in rows]
+        return [self._decode_message(row) for row in rows]
 
     def recent_messages(
         self,
@@ -241,7 +361,7 @@ class ConversationRepository:
                 "ORDER BY sequence DESC LIMIT ?",
                 (conversation_id, max(0, after_sequence), max(1, min(limit, 500))),
             ).fetchall()
-        return [dict(row) for row in reversed(rows)]
+        return [self._decode_message(row) for row in reversed(rows)]
 
     def context_messages(
         self,
@@ -276,7 +396,7 @@ class ConversationRepository:
                     max(1, min(recent_limit, 100)),
                 ),
             ).fetchall()
-        merged = {row["id"]: dict(row) for row in (*oldest, *recent)}
+        merged = {row["id"]: self._decode_message(row) for row in (*oldest, *recent)}
         return sorted(merged.values(), key=lambda row: int(row["sequence"]))
 
     def message_range(
@@ -293,7 +413,7 @@ class ConversationRepository:
                 "AND sequence BETWEEN ? AND ? ORDER BY sequence",
                 (conversation_id, max(1, from_sequence), through_sequence),
             ).fetchall()
-        return [dict(row) for row in rows]
+        return [self._decode_message(row) for row in rows]
 
     def archive(self, user_id: str, conversation_id: str) -> dict[str, Any]:
         with get_conn(self.db_path) as conn:
@@ -597,6 +717,20 @@ class PlanningBriefRepository:
             )
         return self.get(user_id, brief_id), run
 
+    def freeze_for_run(
+        self, user_id: str, brief_id: str, run_id: str
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Freeze a ready Brief onto the existing top-level Chat Run."""
+        def existing_run(conn, _snapshot, conversation_id):
+            row = conn.execute(
+                "SELECT * FROM runs WHERE id=? AND user_id=? AND conversation_id=?",
+                (run_id, user_id, conversation_id),
+            ).fetchone()
+            return _decode_run(row)
+
+        brief, run = self.submit(user_id, brief_id, existing_run)
+        return brief, run
+
 
 def _decode_run(row: sqlite3.Row | None) -> dict[str, Any]:
     if row is None:
@@ -733,6 +867,83 @@ class RunRepository:
             return _decode_run(
                 conn.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
             )
+
+    def accept_interaction(
+        self,
+        user_id: str,
+        run_id: str,
+        interaction_id: str,
+        value: Any,
+    ) -> tuple[dict[str, Any], bool]:
+        """Persist one interrupt answer and resume the same Run exactly once."""
+        now = utcnow()
+        with get_conn(self.db_path) as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                "SELECT * FROM runs WHERE id=? AND user_id=?", (run_id, user_id)
+            ).fetchone()
+            if not row:
+                raise OwnedResourceNotFound("run not found")
+            duplicate = conn.execute(
+                "SELECT message_id FROM run_interaction_responses WHERE run_id=? AND interaction_id=?",
+                (run_id, interaction_id),
+            ).fetchone()
+            if duplicate:
+                result = _decode_run(row)
+                if duplicate["message_id"]:
+                    message_row = conn.execute(
+                        "SELECT * FROM messages WHERE id=?", (duplicate["message_id"],)
+                    ).fetchone()
+                    if message_row:
+                        result["accepted_message"] = ConversationRepository._decode_message(message_row)
+                return result, False
+            if row["status"] != RunStatus.WAITING_USER.value:
+                raise ValueError("run is not waiting for user input")
+            if row["outstanding_interaction_id"] != interaction_id:
+                raise ValueError("stale or mismatched interaction")
+            message_id = None
+            if row["conversation_id"]:
+                owner = conn.execute(
+                    "SELECT status FROM conversations WHERE id=? AND user_id=?",
+                    (row["conversation_id"], user_id),
+                ).fetchone()
+                if not owner:
+                    raise OwnedResourceNotFound("conversation not found")
+                if owner["status"] == "archived":
+                    raise ArchivedConversationError("conversation_archived")
+                message_id = str(uuid.uuid4())
+                sequence = conn.execute(
+                    "SELECT COALESCE(MAX(sequence),0)+1 FROM messages WHERE conversation_id=?",
+                    (row["conversation_id"],),
+                ).fetchone()[0]
+                content = value.strip() if isinstance(value, str) else _json(value)
+                conn.execute(
+                    "INSERT INTO messages(id,conversation_id,user_id,role,content,artifacts_json,sequence,"
+                    "related_run_id,related_itinerary_id,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                    (message_id, row["conversation_id"], user_id, "user", content, "[]",
+                     sequence, run_id, None, now),
+                )
+                conn.execute(
+                    "UPDATE conversations SET updated_at=? WHERE id=?", (now, row["conversation_id"])
+                )
+            conn.execute(
+                "INSERT INTO run_interaction_responses(run_id,interaction_id,message_id,value_json,created_at) "
+                "VALUES(?,?,?,?,?)",
+                (run_id, interaction_id, message_id, _json(value), now),
+            )
+            conn.execute(
+                "UPDATE runs SET status='running',outstanding_interaction_id=NULL,updated_at=? WHERE id=?",
+                (now, run_id),
+            )
+            resumed = conn.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
+            message_row = (
+                conn.execute("SELECT * FROM messages WHERE id=?", (message_id,)).fetchone()
+                if message_id else None
+            )
+        result = _decode_run(resumed)
+        if message_row:
+            result["accepted_message"] = ConversationRepository._decode_message(message_row)
+        return result, True
 
     def queued(self, limit: int = 100) -> list[dict[str, Any]]:
         with get_conn(self.db_path) as conn:

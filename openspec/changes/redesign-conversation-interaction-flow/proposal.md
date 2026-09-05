@@ -13,6 +13,7 @@
 - 在规划后台运行时保持对话输入可用，并为离开视口的活动任务提供轻量状态提示。
 - 当用户试图修改正在执行的不可变请求时，明确提供“按新要求重新规划”或“完成后创建修改任务”的选择。
 - 完成态先展示可理解的成果摘要，再提供打开行程、继续修改等后续操作。
+- 行程详情修改统一进入最近未归档 Conversation，以 `related_itinerary_id` 创建 Revision Run；无可写对话时自动新建，认证续接和失败手动重试均保留原修改文字。
 - 补充键盘操作、焦点管理、状态播报、非颜色状态标识和移动端重排要求。
 
 ## Capabilities
@@ -33,5 +34,5 @@
 - 主要影响 `frontend/main.jsx`、`frontend/pages.jsx`、`frontend/components.jsx`、`frontend/chat-state.js` 和 `frontend/style.css`。
 - 可能扩展前端实体排序、活动任务摘要和输入控件映射；优先复用现有 conversations、messages、planning briefs、runs、events、resume、cancel 与 retry API。
 - 需要调整导航与认证成功回调，但不改变 Run 生命周期、不可变请求快照、SSE 安全过滤或行程结果的数据权威边界。
-- 现有 `PlanPage` 的独立入口将被降级为仅供行程修改使用的兼容路径；行程详情、历史行程、画像和编辑能力继续保留。
+- 旧独立规划页、进程内续接和规划兼容 API 被移除；行程详情、历史行程、画像和编辑能力继续保留，修改由 Conversation + Revision Run 承接。
 - 需要增加 reducer、组件交互、路由恢复、响应式布局及无障碍状态的前端测试。
