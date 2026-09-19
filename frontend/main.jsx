@@ -16,13 +16,15 @@ const THEME_ICONS = { morning: "sun", celadon: "leaf", night: "moon", sky: "spar
 function App() {
   const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
   const legacyHistoryPath = window.location.pathname === "/history";
-  const initialPathPage = window.location.pathname === "/profile" ? "profile" : "home";
+  const initialPathPage = "home";
+  const [profileOpen, setProfileOpen] = React.useState(window.location.pathname === "/profile");
+  const [pageError, setPageError] = React.useState("");
   const [page, setPage] = React.useState(initialPathPage);
   const [authUser, setAuthUser] = React.useState(() => getAuth()?.username || null);
   const [showAuthModal, setShowAuthModal] = React.useState(false);
   const [authReason, setAuthReason] = React.useState("");
   const [pendingAuthAction, setPendingAuthAction] = React.useState(null);
-  const [showUserMenu, setShowUserMenu] = React.useState(false);
+  const navigationGuardRef = React.useRef(null);
   // 行程详情页数据
   const [detailPlan, setDetailPlan] = React.useState(null);
   const [detailPlanId, setDetailPlanId] = React.useState(null);
@@ -42,11 +44,11 @@ function App() {
     }));
     // 处理 URL 参数
     const params = new URLSearchParams(window.location.search);
-    if (initialPathPage === "profile" && !getAuth()) {
+    if (window.location.pathname === "/profile" && !getAuth()) {
       setAuthReason("请先登录管理旅行画像");
       setShowAuthModal(true);
     }
-    if (legacyHistoryPath) history.replaceState({}, "", "/");
+    if (legacyHistoryPath || window.location.pathname === "/profile") history.replaceState({}, "", "/");
     if (params.get("login") === "1" && !getAuth()) {
       setPendingAuthAction(NavigationState.chatTarget(false));
       setShowAuthModal(true);
@@ -69,7 +71,7 @@ function App() {
           setDetailPlanId(viewId);
           setPage("detail");
         }
-      }).catch(() => {});
+      }).catch(error => setPageError(error.message || "行程加载失败"));
     }
   }, []);
 
@@ -78,7 +80,7 @@ function App() {
     checkAuth().then(result => {
       if (!result) setAuthUser(null);
     });
-    const onExpired = () => setAuthUser(null);
+    const onExpired = () => { setAuthUser(null); setDetailPlan(null); setDetailPlanId(null); setPage("home"); setProfileOpen(false); };
     window.addEventListener("auth:expired", onExpired);
     return () => window.removeEventListener("auth:expired", onExpired);
   }, []);
@@ -91,19 +93,8 @@ function App() {
     document.documentElement.setAttribute("data-mascot", t.mascot ? "on" : "off");
   }, [t.mascot]);
 
-  // 点击空白关闭用户菜单（mousedown 避免与按钮 click 冲突）
-  React.useEffect(() => {
-    if (!showUserMenu) return;
-    const handler = (e) => {
-      if (!e.target.closest(".user-chip")) {
-        setShowUserMenu(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [showUserMenu]);
-
   const go = (p) => {
+    if (p !== page && navigationGuardRef.current?.() === false) return;
     setPage(p);
     window.scrollTo({ top: 0 });
   };
@@ -119,6 +110,8 @@ function App() {
   };
 
   const beginFromHome = (prompt) => {
+    setHomePrompt(prompt || "");
+    setDetailPlan(null); setDetailPlanId(null);
     if (!authUser) {
       requestLogin("登录后开始规划你的旅行", NavigationState.chatTarget());
       return;
@@ -162,7 +155,7 @@ function App() {
     if (continuation.page === "detail" && continuation.planId) {
       getHistoryItem(continuation.planId).then(data => {
         if (data?.plan) onOpenHistoryPlan(data.plan, continuation.planId);
-      }).catch(() => {});
+      }).catch(error => setPageError(error.message || "行程加载失败"));
       return;
     }
     if (continuation.mode === "revision") {
@@ -176,6 +169,7 @@ function App() {
   };
 
   const openChat = () => {
+    if (page === "chat" || page === "detail") return;
     if (!authUser) {
       requestLogin(
         "登录后继续你的旅行对话",
@@ -188,10 +182,11 @@ function App() {
   };
 
   const logout = () => {
+    if (navigationGuardRef.current?.() === false) return;
     clearAuth();
     setAuthUser(null);
-    setShowUserMenu(false);
-    go("chat");
+    setDetailPlan(null); setDetailPlanId(null); setProfileOpen(false);
+    setPage("home");
   };
 
   const onOpenHistoryPlan = (rawPlan, planId) => {
@@ -206,8 +201,8 @@ function App() {
 
   return (
     <div className={`app-shell page-${page} workspace-transition-${workspaceTransition}`}>
-      {page !== "detail" && <header className="topbar">
-        <div className="brand" onClick={() => go("home")}>
+      <header className="topbar">
+        <div className="brand" role="button" tabIndex="0" aria-label="返回首页" onKeyDown={event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); go("home"); } }} onClick={() => go("home")}>
           <div className="brand-glyph"><img src="/favicon.png?v=20260830-duck-guide" alt="" /></div>
           <div>
             <div className="brand-name">途见 · AI 旅行规划</div>
@@ -219,17 +214,11 @@ function App() {
             onClick={() => go("home")}>
             首页
           </button>
-          <button className={`topnav-link ${page === "chat" ? "active" : ""}`}
+          <button className={`topnav-link ${page === "chat" || page === "detail" ? "active" : ""}`}
             onClick={openChat}>
             旅行工作区
           </button>
-          <button className={`topnav-link ${page === "profile" ? "active" : ""}`}
-            onClick={() => { if (!authUser) { requestLogin("请先登录管理旅行画像"); return; } go("profile"); }}>
-            我的画像
-          </button>
-          <button className={`topnav-link sweep-nav-link ${page === "sweep" ? "active" : ""}`} onClick={() => go("sweep")}>
-            <UiIcon name="flask" size={15} />测试
-          </button>
+
         </nav>
 
         <div className="theme-switcher" role="group" aria-label="切换主题">
@@ -248,19 +237,14 @@ function App() {
         </div>
 
         {authUser ? (
-          <div className="user-chip" onClick={(e) => { e.stopPropagation(); setShowUserMenu(v => !v); }}>
+          <button className="user-chip" aria-label="打开我的旅行画像" aria-haspopup="dialog" onClick={() => setProfileOpen(true)}>
             <span className="chip-name">{authUser}</span>
             <span className="avatar-dot">{initial}</span>
-            {showUserMenu && (
-              <div className="user-dropdown" onClick={e => e.stopPropagation()}>
-                <button onClick={logout}>退出登录</button>
-              </div>
-            )}
-          </div>
+          </button>
         ) : (
           <button className="user-login-btn" onClick={() => requestLogin("")}>登录 / 注册</button>
         )}
-      </header>}
+      </header>
 
       {showAuthModal && (
         <AuthModal
@@ -270,17 +254,20 @@ function App() {
         />
       )}
 
-      {page === "detail" && detailPlan && (
+      {pageError && <div className="chat-error" role="alert">{pageError}<button onClick={() => setPageError("")}>关闭</button></div>}
+      {(page === "chat" || page === "detail") && (
         <TripDetailPage
-          plan={detailPlan}
-          planId={detailPlanId}
-          onRequestModify={onRequestModify}
-          currentUsername={authUser}
-          onBack={() => go("chat")}
-          onPlanChange={(rawPlan, nextPlanId) => {
-            setDetailPlan(adaptPlan(rawPlan, authUser));
-            setDetailPlanId(nextPlanId);
-          }}
+          key={authUser || "guest"}
+          navigationGuardRef={navigationGuardRef} profileOpen={profileOpen}
+          plan={detailPlan} planId={detailPlanId}
+          onRequestModify={onRequestModify} currentUsername={authUser}
+          onBack={() => { setPage("home"); window.scrollTo({ top: 0 }); }}
+          onRequestLogin={() => requestLogin("登录后继续你的旅行对话", NavigationState.chatTarget())}
+          onClearPlan={() => { setDetailPlan(null); setDetailPlanId(null); }}
+          initialDraft={homePrompt} onInitialDraftConsumed={() => setHomePrompt("")}
+          revisionTrigger={revisionTrigger}
+          onRevisionConsumed={nonce => setRevisionTrigger(current => current?.nonce === nonce ? null : current)}
+          onPlanChange={(rawPlan, nextPlanId) => { setDetailPlan(adaptPlan(rawPlan, authUser)); setDetailPlanId(nextPlanId); }}
         />
       )}
       {page === "home" && (
@@ -292,44 +279,11 @@ function App() {
           onOpenWorkspace={openChat}
           onOpenPlan={(planId) => getHistoryItem(planId).then(data => {
             if (data?.plan) onOpenHistoryPlan(data.plan, planId);
-          })}
+          }).catch(error => setPageError(error.message || "行程加载失败"))}
         />
       )}
-      {page === "chat" && (
-        <ChatPage
-          currentUsername={authUser}
-          onRequestLogin={() => requestLogin("登录后继续你的旅行对话", NavigationState.chatTarget())}
-          revisionTrigger={revisionTrigger}
-          initialDraft={homePrompt}
-          onInitialDraftConsumed={() => setHomePrompt("")}
-          onRevisionConsumed={(nonce) => {
-            setRevisionTrigger(current => current?.nonce === nonce ? null : current);
-          }}
-          onOpenPlan={(planId) => {
-            getHistoryItem(planId).then(data => {
-              if (data?.plan) onOpenHistoryPlan(data.plan, planId);
-            });
-          }}
-        />
-      )}
-      {page === "profile" && (
-        <ProfilePage currentUsername={authUser} />
-      )}
-      {page === "sweep" && (
-        <SweepPreviewPage />
-      )}
+      {profileOpen && authUser && <ProfileModal currentUsername={authUser} onLogout={logout} onClose={() => setProfileOpen(false)} />}
 
-      {page !== "detail" && <TweaksPanel>
-        <TweakSection label="整体方案" />
-        <TweakSelect
-          label="主题"
-          value={t.theme}
-          options={THEME_OPTIONS}
-          onChange={(v) => setTweak("theme", v)}
-        />
-        <TweakSection label="虚拟形象" />
-        <TweakToggle label="显示向导「途途」" value={t.mascot} onChange={(v) => setTweak("mascot", v)} />
-      </TweaksPanel>}
     </div>
   );
 }

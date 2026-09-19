@@ -69,6 +69,7 @@ function ChatPage({
   currentUsername, onRequestLogin, onOpenPlan,
   revisionTrigger, onRevisionConsumed,
   initialDraft = "", onInitialDraftConsumed,
+  embedded = false, inputDisabled = false, onBeforeConversationChange, relatedPlanId = null, onBack, onToggleDetail, onPlanResult, onClearPlan,
 }) {
   const [conversations, setConversations] = React.useState([]);
   const [activeId, setActiveId] = React.useState(null);
@@ -83,6 +84,14 @@ function ChatPage({
   const [revisionSubmitting, setRevisionSubmitting] = React.useState(false);
   const [compressing, setCompressing] = React.useState(false);
   const [compressionFeedback, setCompressionFeedback] = React.useState("");
+  const conversationGuardRef = React.useRef(onBeforeConversationChange);
+  conversationGuardRef.current = onBeforeConversationChange;
+  const initialSubmitRef = React.useRef(initialDraft);
+  const sendingRef = React.useRef(false);
+  const resultCallbackRef = React.useRef(onPlanResult);
+  const clearPlanRef = React.useRef(onClearPlan);
+  clearPlanRef.current = onClearPlan;
+  resultCallbackRef.current = onPlanResult;
   const abortsRef = React.useRef({});
   const activeIdRef = React.useRef(null);
   const runNodesRef = React.useRef({});
@@ -161,20 +170,27 @@ function ChatPage({
     streamRuntimeRun(run.id, cursor, {
       onAbort: abort => { abortsRef.current[run.id] = abort; },
       onEvent: event => {
+        if (activeIdRef.current !== run.conversation_id) return;
         applyRunEvent(run.id, event);
         const completed = (
           event.payload?.kind === "run.status" && event.payload.status === "succeeded"
         ) || (event.kind === "end" && event.payload?.status === "succeeded");
+        if (completed && activeIdRef.current === run.conversation_id) {
+          getRun(run.id).then(updated => {
+            if (activeIdRef.current === run.conversation_id && updated.result_itinerary_id) resultCallbackRef.current?.(updated.result_itinerary_id);
+          }).catch(() => {});
+        }
         if (run.kind === "chat" && completed && run.journey_step_index !== undefined) {
           markViewedIfVisible(run.conversation_id);
         }
       },
       onClose: () => { delete abortsRef.current[run.id]; },
-      onError: () => { delete abortsRef.current[run.id]; },
+      onError: () => { delete abortsRef.current[run.id]; if (activeIdRef.current === run.conversation_id) setError("连接中断，请点击恢复对话继续接收进度"); },
     });
   }, [applyRunEvent, markViewedIfVisible]);
 
-  const loadConversation = React.useCallback(async (conversationId) => {
+  const loadConversation = React.useCallback(async (conversationId, restorePlan = false, skipGuard = false) => {
+    if (!skipGuard && conversationGuardRef.current?.() === false) return;
     activeIdRef.current = conversationId;
     setActiveId(conversationId);
     setLoading(true);
@@ -214,7 +230,12 @@ function ChatPage({
         });
         persistCursor(runId, next.cursors[runId]);
       });
+      if (activeIdRef.current !== conversationId) return;
       setState(next);
+      if (restorePlan) {
+        const latest = [...runs].reverse().find(run => run.result_itinerary_id);
+        if (latest) resultCallbackRef.current?.(latest.result_itinerary_id); else clearPlanRef.current?.();
+      }
       setComposerTarget(null);
       setSidebarOpen(false);
       activeRuns.forEach(
@@ -234,8 +255,10 @@ function ChatPage({
     listConversations().then(async items => {
       if (!alive) return;
       setConversations(items);
-      const initial = items.find(item => item.status !== "archived") || items[0];
-      if (initial) await loadConversation(initial.id);
+      const related = relatedPlanId ? await listConversations(relatedPlanId) : [];
+      if (!alive) return;
+      const initial = related.find(item => item.status !== "archived") || (!relatedPlanId && !initialDraft ? items.find(item => item.status !== "archived") || items[0] : null);
+      if (initial) await loadConversation(initial.id, !relatedPlanId);
       else setLoading(false);
     }).catch(e => { setError(e.message); setLoading(false); });
     return () => {
@@ -285,10 +308,11 @@ function ChatPage({
   }, [currentUsername, activeId, markViewedIfVisible]);
 
   const newConversation = async () => {
+    if (conversationGuardRef.current?.() === false) return null;
     try {
       const created = await createConversation("新的旅行对话");
       setConversations(previous => [created, ...previous]);
-      await loadConversation(created.id);
+      await loadConversation(created.id, true, true);
       return created;
     } catch (e) {
       setError(e.message || "暂时无法新建对话");
@@ -325,7 +349,7 @@ function ChatPage({
     }
     const context = target?.mode === "revision"
       ? { related_itinerary_id: target.itineraryId }
-      : {};
+      : relatedPlanId ? { related_itinerary_id: relatedPlanId } : {};
     const result = await submitConversationMessage(conversationId, content, context);
     setConversations(previous => previous.map(item => (
       item.id === conversationId && (!item.title || item.title === "新的旅行对话")
@@ -341,14 +365,26 @@ function ChatPage({
     return result;
   };
 
+  React.useEffect(() => {
+    if (loading || !currentUsername || !initialSubmitRef.current) return;
+    const content = initialSubmitRef.current;
+    initialSubmitRef.current = "";
+    sendingRef.current = true;
+    setDraft("");
+    submitChatContent(content, null, null).catch(error => {
+      setDraft(content); setError(error.message || "发送失败，请重试");
+    }).finally(() => { sendingRef.current = false; });
+  }, [loading, currentUsername]);
+
   const send = async () => {
-    if (revisionSubmitting) return;
+    if (revisionSubmitting || sendingRef.current || loading || inputDisabled) return;
     const content = draft.trim();
     if (!content) return;
     if (blockingRun?.status === "waiting_user") {
       const run = blockingRun;
       const interaction = run.pending_interaction;
       if (!interaction?.interaction_id) return;
+      sendingRef.current = true;
       setDraft("");
       setError("");
       try {
@@ -362,13 +398,17 @@ function ChatPage({
           };
         });
         setComposerTarget(null);
+        abortsRef.current[run.id]?.();
+        delete abortsRef.current[run.id];
+        subscribeRun({ ...run, ...resumed });
       } catch (e) {
         setDraft(content);
         setError(e.message || "回复提交失败，请重试");
-      }
+      } finally { sendingRef.current = false; }
       return;
     }
     if (blockingRun) return;
+    sendingRef.current = true;
     setDraft("");
     setError("");
     try {
@@ -384,7 +424,7 @@ function ChatPage({
       setDraft(content);
       setError(e.message || "发送失败");
       if (e.code === "conversation_run_active" && activeId) await loadConversation(activeId);
-    }
+    } finally { sendingRef.current = false; }
   };
 
   React.useEffect(() => {
@@ -540,9 +580,11 @@ function ChatPage({
     : [];
 
   return (
-    <div className="chat-shell workspace-shell page-fade">
+    <div className={`chat-shell workspace-shell page-fade ${embedded ? "embedded-chat" : ""}`}>
+      {embedded && <div className="studio-chat-toolbar"><button onClick={onBack}><UiIcon name="arrow-right" size={16} />首页</button><span>YOUR PERSONAL TRIP PLANNER</span><button onClick={() => setSidebarOpen(value => !value)} aria-expanded={sidebarOpen}><UiIcon name="menu" size={16} />历史对话</button><button onClick={onToggleDetail}><UiIcon name="map" size={16} />详情</button></div>}
       <aside className={`chat-sidebar ${sidebarOpen ? "open" : ""}`} aria-label="旅行工作区记录">
         <div className="chat-sidebar-head">
+          {embedded && <button onClick={() => setSidebarOpen(false)} aria-label="关闭历史对话"><UiIcon name="close" size={16} /></button>}
           <div><small>MY JOURNEYS</small><strong>旅行线索</strong></div>
           <button onClick={newConversation} aria-label="开始一段新的旅行规划"><UiIcon name="plus" size={15} />新旅程</button>
         </div>
@@ -556,7 +598,7 @@ function ChatPage({
               <button key={item.id}
                 className={`conversation-item ${active ? "active" : ""} attention-${attention?.kind || "none"}`}
                 aria-label={`${item.title || "未命名对话"}${ariaStatus}`}
-                onClick={() => loadConversation(item.id)}>
+                onClick={() => loadConversation(item.id, true)}>
                 <span className="conversation-item-main">
                   <strong>{item.title || "未命名对话"}</strong>
                   {attention && attention.kind !== "archived" && (
@@ -612,7 +654,7 @@ function ChatPage({
               <div className="first-journey-copy">
                 <span className="chat-empty-kicker">YOUR NEXT ITINERARY</span>
                 <strong>先写下目的地，<br />我们把它铺成路线。</strong>
-                <p>不必把对话当作目的地。说出一个念头，下一屏就会是一份可以编辑的旅行计划。</p>
+                <p>告诉我目的地、时间和旅行偏好，我们一起把想法整理成右侧的完整行程。</p>
                 <div className="chat-empty-prompts">
                   <button onClick={() => setDraft("十月适合去云南吗？")}>找找灵感<small>十月适合去云南吗？</small></button>
                   <button onClick={() => setDraft("帮我规划去云南旅行")}>创建行程<small>帮我规划去云南旅行</small></button>
@@ -653,7 +695,7 @@ function ChatPage({
               ? "有一项旅行规划未能完成"
               : ""}
         </div>
-        {error && <div ref={errorRef} tabIndex="-1" className="chat-error" role="alert">{error}</div>}
+        {error && <div ref={errorRef} tabIndex="-1" className="chat-error" role="alert">{error}{activeId && <button onClick={() => loadConversation(activeId)}>恢复对话</button>}</div>}
         {offscreenRuns.length > 0 && (
           <div className="active-run-rail" aria-label="视口外的活动任务">
             {offscreenRuns.slice(0, 3).map(run => (
@@ -683,23 +725,23 @@ function ChatPage({
               </div>
             )}
             <textarea ref={composerRef} value={draft} onChange={e => setDraft(e.target.value)}
-              disabled={!!blockingRun && blockingRun.status !== "waiting_user"}
+              disabled={inputDisabled || (!!blockingRun && blockingRun.status !== "waiting_user")}
               aria-label={blockingRun?.status === "waiting_user" ? "回答当前问题" : composerTarget ? composerTarget.label : "给途途发送消息"}
               placeholder={blockingRun?.status === "waiting_user" ? "回答上方问题，继续这次规划…" : blockingRun ? "规划进行中" : composerTarget?.mode === "revision" ? "说说你想怎么调整…" : "继续聊天，或描述一趟想规划的旅行…"}
               onKeyDown={e => {
-                if (e.key === "Enter" && !e.shiftKey) {
+                if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
                   e.preventDefault(); send();
                 }
               }} />
             <button className={`composer-send ${blockingRun && blockingRun.status !== "waiting_user" ? "is-stop" : ""}`}
               onClick={blockingRun && blockingRun.status !== "waiting_user" ? () => controlRun(blockingRun, "cancel") : send}
-              disabled={blockingRun?.status === "waiting_user" ? !draft.trim() : !blockingRun && (!draft.trim() || revisionSubmitting)}
+              disabled={inputDisabled || (blockingRun?.status === "waiting_user" ? !draft.trim() : !blockingRun && (!draft.trim() || revisionSubmitting))}
               aria-label={blockingRun && blockingRun.status !== "waiting_user" ? "停止当前任务" : "发送消息"}>
               <span aria-hidden="true"><UiIcon name={blockingRun && blockingRun.status !== "waiting_user" ? "stop" : "arrow-up"} size={18} /></span>
               <span className="composer-send-label">{blockingRun && blockingRun.status !== "waiting_user" ? "停止" : "发送"}</span>
             </button>
           </div>
-          <small className="composer-hint">{blockingRun?.status === "waiting_user" ? "这条回答会继续当前任务，不会创建新的 Run" : blockingRun ? "当前对话会在任务完成后恢复输入" : revisionSubmitting ? "正在提交这次行程修改…" : composerTarget ? "这条内容会发送到指定任务" : "可以继续描述你的旅行想法"}</small>
+          <small className="composer-hint">{inputDisabled ? "先保存或取消右侧的手动编辑，再继续对话" : blockingRun?.status === "waiting_user" ? "回答后将继续当前规划" : blockingRun ? "当前对话会在任务完成后恢复输入" : revisionSubmitting ? "正在提交这次行程修改…" : composerTarget ? "这条内容会发送到指定任务" : "可以继续描述你的旅行想法"}</small>
           </>}
         </div>
       </main>
@@ -2036,6 +2078,7 @@ function MemoryFactCard({ fact, candidate = false, onChanged }) {
 
 function ProfilePage({ currentUsername }) {
   const [profile, setProfile] = React.useState({ revision: 0, active_facts: [], candidate_facts: [], trip_count: 0 });
+  const [profileError, setProfileError] = React.useState("");
   const [loading, setLoading] = React.useState(true);
   const [form, setForm] = React.useState({ category: "attraction_preference", value_text: "", polarity: "prefer", scope_type: "global", destination: "", companion: "" });
   const [adding, setAdding] = React.useState(false);
@@ -2043,7 +2086,8 @@ function ProfilePage({ currentUsername }) {
     try {
       const data = await getProfile();
       if (data) setProfile(data);
-    } catch {}
+      setProfileError("");
+    } catch (error) { setProfileError(error.message || "画像加载失败"); }
   };
 
   React.useEffect(() => {
@@ -2082,6 +2126,7 @@ function ProfilePage({ currentUsername }) {
 
   return (
     <div className="page page-fade">
+      {profileError && <div role="alert" className="chat-error">{profileError}<button onClick={refreshProfile}>重新加载</button></div>}
       <div className="mag-head">
         <div>
           <div className="eyebrow">PROFILE · 旅行画像</div>
@@ -2322,6 +2367,7 @@ function DashboardPlanCard({ trip, onOpen }) {
 
 function DashboardPage({ currentUsername, onStart, onFocusComposer, onDraftChange, onOpenPlan, onOpenWorkspace }) {
   const [draft, setDraft] = React.useState("");
+  const [mode, setMode] = React.useState("plan");
   const [plans, setPlans] = React.useState([]);
   const [loadingPlans, setLoadingPlans] = React.useState(false);
   const [plansCursor, setPlansCursor] = React.useState(null);
@@ -2369,7 +2415,7 @@ function DashboardPage({ currentUsername, onStart, onFocusComposer, onDraftChang
 
   const begin = (text = draft) => {
     const prompt = text.trim();
-    onStart?.(prompt);
+    if (prompt) onStart?.(mode === "parse" ? `请解析以下旅行攻略，整理成可执行行程：\n${prompt}` : prompt);
   };
 
   return <main className="dashboard-page page-fade">
@@ -2380,15 +2426,15 @@ function DashboardPage({ currentUsername, onStart, onFocusComposer, onDraftChang
         <p>1分钟创建行程，或帮你一键解析</p>
       </div>
       <div className="dashboard-composer">
-        <div className="dashboard-mode-tabs" role="tablist" aria-label="输入模式"><button role="tab" aria-selected="true">⌕　计划</button><button role="tab" aria-selected="false">⌁　解析</button></div>
-        <textarea value={draft} onFocus={onFocusComposer} onChange={event => { setDraft(event.target.value); onDraftChange?.(event.target.value); }}
-          aria-label="描述旅行想法" placeholder="描述对目的地的旅行想法，智能生成行程计划"
+        <div className="dashboard-mode-tabs" role="tablist" aria-label="输入模式"><button role="tab" aria-selected={mode === "plan"} onClick={() => setMode("plan")}>⌕　计划</button><button role="tab" aria-selected={mode === "parse"} onClick={() => setMode("parse")}>⌁　解析</button></div>
+        <textarea value={draft} onChange={event => { setDraft(event.target.value); onDraftChange?.(event.target.value); }}
+          aria-label="描述旅行想法" placeholder={mode === "parse" ? "粘贴攻略文字或旅行安排，帮你整理成完整行程" : "描述对目的地的旅行想法，智能生成行程计划"}
           onKeyDown={event => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); begin(); } }} />
         <div className="dashboard-composer-foot">
           <div className="dashboard-style-chips">
             {["北京", "上海", "南京", "苏州", "广州", "韩国"].map(label => <button key={label} onClick={() => setDraft(`${label}，`)}>{label}</button>)}
           </div>
-          <button className="dashboard-send" onClick={() => begin()} aria-label="开始旅行规划"><UiIcon name="arrow-up" size={21} /></button>
+          <button className="dashboard-send" disabled={!draft.trim()} onClick={() => begin()} aria-label="开始旅行规划"><UiIcon name="arrow-up" size={21} /></button>
         </div>
       </div>
     </section>

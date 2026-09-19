@@ -12,16 +12,18 @@ function RedesignTimeline({ items, selectedIndex, onSelect, onNav, activeNavKey,
           ? "途途正在整理这处地点的旅行贴士…"
           : "已同步到当前路线，点开地图标记可查看详情。");
       const duration = itemDuration(item);
+      const warning = `${note}。${item.open || ""}`.split(/(?<=[。！？；])/).filter(sentence => /闭馆|关闭|暂停|不可|禁止|危险|冲突|未预约|停止入场/.test(sentence)).join("");
+      const summary = String(note).split(/[。！？\n]/)[0];
       return <React.Fragment key={`${item.name || item.type}-${index}`}>
-        <article className={`rd-stop${selectedIndex === index ? " is-selected" : ""}`} onClick={() => onSelect(index)}>
+        <article className={`rd-stop${selectedIndex === index ? " is-selected" : ""}`} tabIndex="0" role="button" aria-label={`查看${item.name || "地点"}`} onKeyDown={event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(index); } }} onClick={() => onSelect(index)}>
           <time><strong>{item.start || (item.type === "lunch" ? "午餐" : item.type === "dinner" ? "晚餐" : "待定")}</strong><span>{index === 0 ? "出发" : "之后"}</span></time>
           <span className={`rd-stop-node${isMeal ? " is-meal" : ""}`}><UiIcon name={isMeal ? "utensils" : "location"} size={14} /></span>
           <div className="rd-stop-card">
             <span className={`rd-stop-icon ${isMeal ? "ochre" : index % 3 === 0 ? "terracotta" : index % 3 === 1 ? "sage" : "ink"}`}><UiIcon name={isMeal ? "utensils" : index % 2 ? "map" : "location"} size={17} /></span>
             <div className="rd-stop-copy">
               <div className="rd-stop-meta"><span>{isMeal ? "本地风味" : "人文漫游"}</span><small>建议停留 {duration}</small></div>
-              <h4>{item.name || "待安排地点"}</h4><p>{note}</p>
-              <em><UiIcon name="location" size={12} />{item.address || item.addr || (item.rating ? `评分 ${Number(item.rating).toFixed(1)}` : "已同步地图位置")}</em>
+              <h4>{item.name || "待安排地点"}</h4><p className="sl-stop-summary">{summary}</p>{warning && <p className="sl-stop-warning"><UiIcon name="alert" size={12} />{warning}</p>}
+
             </div><UiIcon className="rd-stop-chevron" name="arrow-right" size={16} />
           </div>
         </article>
@@ -35,148 +37,137 @@ function RedesignTimeline({ items, selectedIndex, onSelect, onNav, activeNavKey,
   </div>;
 }
 
-function RedesignMapFallback({ items, selectedIndex, onSelect }) {
-  const points = [
-    { left: 54, top: 52 },
-    { left: 45, top: 60 },
-    { left: 39, top: 68 },
-    { left: 49, top: 43 },
-    { left: 64, top: 31 },
-  ];
-  return <div className="rd-map-fallback" aria-hidden="true">
-    <svg viewBox="0 0 560 680" preserveAspectRatio="none">
-      <path className="water" d="M470 -20 C405 65 478 131 430 210 C388 278 445 353 405 426 C366 496 405 586 348 710 L590 710 L590 -20Z" />
-      <path className="park" d="M402 84 C448 40 533 64 548 129 C559 180 529 240 474 230 C417 218 364 124 402 84Z" />
-      <path className="park park-two" d="M58 50 C106 18 185 42 192 105 C198 158 151 198 95 180 C39 162 13 83 58 50Z" />
-      <path className="road wide" d="M-35 604 C86 542 159 477 231 397 C301 319 354 243 397 149 C421 97 447 40 485 -20" />
-      <path className="road" d="M-20 266 C96 273 181 300 263 340 C347 381 443 373 585 328" />
-      <path className="road" d="M18 94 C115 163 196 189 277 200 C374 213 433 274 582 421" />
-      <path className="road" d="M-30 474 C95 421 183 418 276 449 C372 481 462 542 592 533" />
-      <path className="road thin" d="M134 -20 C164 116 116 223 148 355 C173 456 157 573 185 710" />
-      <path className="route" d="M30 530 C117 477 170 430 222 384 C277 335 323 281 373 195" />
-    </svg>
-    <span className="rd-district rd-xuanwu">玄<br />武<br />湖</span>
-    <span className="rd-district rd-xinjiekou">新街口</span>
-    <span className="rd-district rd-qinhuai">秦淮河</span>
-    {(items || []).slice(0, 5).map((item, index) => {
-      const point = points[index] || points[points.length - 1];
-      return <button key={`${item.name}-${index}`} className={selectedIndex === index ? "active" : ""} style={{ left: `${point.left}%`, top: `${point.top}%` }} onClick={() => onSelect(index)} tabIndex="-1"><i>{index + 1}</i>{index === 0 && <b>{item.name}</b>}</button>;
-    })}
+function RedesignCopilot(props) {
+  return <section className="rd-chat-panel"><ChatPage embedded {...props} /></section>;
+}
+
+function ProfileModal({ currentUsername, onClose, onLogout }) {
+  const dialogRef = React.useRef(null);
+  React.useEffect(() => {
+    const previous = document.activeElement;
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    dialogRef.current?.focus();
+    const keydown = event => {
+      if (event.key === "Escape") onClose();
+      if (event.key !== "Tab") return;
+      const items = [...dialogRef.current.querySelectorAll('button, input, select, textarea, [tabindex="0"]')].filter(item => !item.disabled && item.getClientRects().length);
+      const first = items[0], last = items[items.length - 1];
+      if (event.shiftKey && (document.activeElement === first || document.activeElement === dialogRef.current)) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+    };
+    document.addEventListener("keydown", keydown);
+    return () => { document.body.style.overflow = overflow; document.removeEventListener("keydown", keydown); previous?.focus(); };
+  }, []);
+  return <div className="rd-profile-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}><section ref={dialogRef} tabIndex="-1" className="studio-profile-modal" role="dialog" aria-modal="true" aria-label="我的旅行画像"><button className="studio-profile-close" onClick={onClose} aria-label="关闭用户画像"><UiIcon name="close" size={20} /></button><ProfilePage currentUsername={currentUsername} />{onLogout && <footer className="profile-account-actions"><button onClick={onLogout}>退出登录</button></footer>}</section></div>;
+}
+
+const StudioPlanEditor = React.forwardRef(function StudioPlanEditor({ plan, planId, dayIdx, currentUsername, onSaved, onClose, toolbarHost, onSearch, onPreview }, ref) {
+  const [draft, setDraft] = React.useState(() => structuredClone(plan._raw.days));
+  const [past, setPast] = React.useState([]);
+  const [future, setFuture] = React.useState([]);
+  const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState("");
+  const [version, setVersion] = React.useState(0);
+  const originalDraftRef = React.useRef(JSON.stringify(plan._raw.days));
+  const dirty = JSON.stringify(draft) !== originalDraftRef.current;
+  const canLeave = () => !saving && (!dirty || window.confirm("放弃未保存的行程修改？"));
+  const apply = (mutate, targetDay = dayIdx) => {
+    const next = structuredClone(draft); mutate(next[targetDay].timeline);
+    next.forEach(day => recalcDayDists(day.timeline));
+    setPast([...past, draft]); setFuture([]); setDraft(next); setVersion(version + 1);
+  };
+  React.useImperativeHandle(ref, () => ({ canLeave, pick(poi, target) {
+    if (saving) return;
+    apply(items => {
+      const old = target.index === null ? {} : items[target.index];
+      const next = { ...old, ...poi, type: target.type, tip: null, reason: null, no_restaurant: false };
+      if (target.index === null) items.push(next); else items[target.index] = next;
+    }, target.dayIdx);
+  } }));
+  React.useEffect(() => { onPreview(adaptPlan({ ...plan._raw, days: draft }, currentUsername)); }, [draft]);
+  React.useEffect(() => {
+    const guard = event => { if (dirty) { event.preventDefault(); event.returnValue = ""; } };
+    window.addEventListener("beforeunload", guard);
+    return () => window.removeEventListener("beforeunload", guard);
+  }, [dirty]);
+  const save = async () => {
+    if (saving) return;
+    setSaving(true); setError("");
+    try { const result = await saveTimeline(planId, draft.map((day, index) => ({ day: day.day || index + 1, timeline: day.timeline }))); onSaved(result.plan); onClose(); }
+    catch (err) { setError(err.message || "保存失败，请重试"); }
+    finally { setSaving(false); }
+  };
+  return <div className="studio-editor">
+    {toolbarHost && ReactDOM.createPortal(<div className="sl-edit-actions" aria-label="行程编辑工具栏">
+      <button disabled={saving} onClick={() => { if (canLeave()) onClose(); }}>取消</button>
+      <button aria-label="撤销修改" disabled={!past.length || saving} onClick={() => { setFuture([...future, draft]); setDraft(past[past.length - 1]); setPast(past.slice(0, -1)); setVersion(version + 1); }}><UiIcon name="undo" size={15} /><span>撤销</span></button>
+      <button aria-label="重做修改" disabled={!future.length || saving} onClick={() => { setPast([...past, draft]); setDraft(future[future.length - 1]); setFuture(future.slice(0, -1)); setVersion(version + 1); }}><UiIcon name="redo" size={15} /><span>重做</span></button>
+      <button className="primary" disabled={saving} onClick={save} aria-label="完成编辑">{saving ? "保存中…" : error ? "重试保存" : "保存"}</button>
+    </div>, toolbarHost)}
+    <p className="sl-edit-hint">拖动调整顺序 · 点击时间修改{dirty ? " · 有未保存修改" : ""}</p>
+    {error && <p className="sl-error" role="alert">{error}</p>}
+    <fieldset disabled={saving} style={{ border: 0, padding: 0, minWidth: 0 }}><EditableTimeline rawTimeline={draft[dayIdx].timeline} ver={`${dayIdx}-${version}`}
+      onReorder={(from, to) => apply(items => { const moved = reorderKeepTimes(items, from, to); items.splice(0, items.length, ...moved); })}
+      onDelete={index => apply(items => items.splice(index, 1))}
+      onTimeChange={(index, start, end) => apply(items => Object.assign(items[index], { start_time: start, end_time: end }))}
+      onReplace={index => onSearch({ dayIdx, index, type: draft[dayIdx].timeline[index].type })}
+      onAdd={type => onSearch({ dayIdx, index: null, type })} /></fieldset>
+  </div>;
+});
+
+function StudioPoiPicker({ city, target, candidates, onPick }) {
+  const [query, setQuery] = React.useState("");
+  const [results, setResults] = React.useState(null);
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState("");
+  const search = async event => {
+    event.preventDefault(); if (!query.trim() || busy) return;
+    setBusy(true); setError("");
+    try { setResults(await searchPoi(city, query.trim(), target.type === "attraction" ? "attraction" : "restaurant")); }
+    catch (err) { setError(err.message || "搜索失败，请重试"); }
+    finally { setBusy(false); }
+  };
+  const spots = results || (target.type === "attraction" ? candidates : []);
+  return <div className="sl-poi-picker"><form onSubmit={search}><input aria-label="搜索地点" placeholder="景点名称或餐厅菜系" value={query} onChange={event => setQuery(event.target.value)} /><button disabled={busy || !query.trim()}>{busy ? "搜索中…" : "搜索"}</button></form>
+    <p>选择后加入 Day {target.dayIdx + 1} 的编辑草稿，保存后生效。</p>
+    {error && <p className="sl-error" role="alert">{error}</p>}
+    {!spots.length && <p>{results ? "没有找到地点，换个关键词试试。" : "输入关键词，搜索真实地点。"}</p>}
+    {spots.map((poi, index) => <button className="sl-poi-result" key={index} onClick={() => onPick(poi)}><strong>{poi.name}</strong><span>{poi.address || ""}{poi.rating ? ` · ${poi.rating} 分` : ""}</span><em>{target.index === null ? "添加到行程" : "替换此地点"}</em></button>)}
   </div>;
 }
 
-function RedesignCopilot({ plan, planId, day, dayIdx, displayDateRange, currentUsername, onBack, onCollapse, onPlanResult }) {
-  const [query, setQuery] = React.useState("");
-  const [activeId, setActiveId] = React.useState(null);
-  const [state, setState] = React.useState(() => ChatState.initialState());
-  const [loading, setLoading] = React.useState(true);
+function StudioNearby({ item }) {
+  const [kind, setKind] = React.useState("风景名胜");
+  const [radius, setRadius] = React.useState(1500);
+  const [results, setResults] = React.useState([]);
   const [error, setError] = React.useState("");
-  const [historyOpen, setHistoryOpen] = React.useState(false);
-  const abortsRef = React.useRef({});
-  const scrollRef = React.useRef(null);
-  const runs = Object.values(state.runs || {}).sort((a, b) => String(a.created_at || "").localeCompare(String(b.created_at || "")));
-  const blockingRun = [...runs].reverse().find(run => ["queued", "running", "waiting_user"].includes(run.status)) || null;
-  const failedRun = [...runs].reverse().find(run => run.status === "failed") || null;
-  const messages = Object.values(state.messages || {}).sort((a, b) => (a.sequence || 0) - (b.sequence || 0));
-
-  const applyRunEvent = React.useCallback((runId, event) => {
-    setState(previous => ChatState.applyEvent(previous, runId, event));
-    if (event.payload?.kind === "run.status" && event.payload.status === "succeeded") {
-      getRun(runId).then(run => { if (run?.result_itinerary_id) onPlanResult?.(run.result_itinerary_id); }).catch(() => {});
-    }
-  }, [onPlanResult]);
-
-  const subscribeRun = React.useCallback(run => {
-    if (!run?.id || abortsRef.current[run.id]) return;
-    let activeAbort = null;
-    streamRuntimeRun(run.id, 0, {
-      onAbort: abort => { activeAbort = abort; abortsRef.current[run.id] = abort; },
-      onEvent: event => applyRunEvent(run.id, event),
-      onClose: () => { if (abortsRef.current[run.id] === activeAbort) delete abortsRef.current[run.id]; },
-      onError: () => { if (abortsRef.current[run.id] === activeAbort) delete abortsRef.current[run.id]; },
-    });
-  }, [applyRunEvent]);
-
+  const [busy, setBusy] = React.useState(false);
+  const [retry, setRetry] = React.useState(0);
   React.useEffect(() => {
-    Object.values(abortsRef.current).forEach(abort => abort());
-    abortsRef.current = {};
-    setState(ChatState.initialState()); setActiveId(null); setError(""); setLoading(true);
-    if (!currentUsername || !planId) { setLoading(false); return undefined; }
-    let alive = true;
-    listConversations(planId).then(async conversations => {
-      if (!alive) return;
-      const conversation = conversations.find(item => item.status !== "archived") || conversations[0];
-      if (!conversation) return;
-      setActiveId(conversation.id);
-      const [loadedMessages, loadedRuns] = await Promise.all([getConversationMessages(conversation.id), listRuns(conversation.id)]);
-      let next = ChatState.initialState();
-      loadedMessages.forEach(message => { next = ChatState.upsertMessage(next, message); });
-      loadedRuns.forEach(run => { next.runs[run.id] = run; });
-      setState(next);
-      loadedRuns.filter(run => ["queued", "running", "waiting_user"].includes(run.status)).forEach(subscribeRun);
-    }).catch(errorValue => { if (alive) setError(errorValue.message || "加载行程对话失败"); })
-      .finally(() => { if (alive) setLoading(false); });
-    return () => { alive = false; Object.values(abortsRef.current).forEach(abort => abort()); abortsRef.current = {}; };
-  }, [planId, currentUsername]); // eslint-disable-line react-hooks/exhaustive-deps
+    let alive = true; setBusy(true); setError("");
+    searchNearby(item.location.lat, item.location.lng, kind, radius).then(data => { if (alive) setResults(data); }).catch(err => { if (alive) setError(err.message || "搜索失败"); }).finally(() => { if (alive) setBusy(false); });
+    return () => { alive = false; };
+  }, [item.location.lat, item.location.lng, kind, radius, retry]);
+  return <div className="sl-nearby"><label>类型<select value={kind} onChange={e => setKind(e.target.value)}><option>风景名胜</option><option>餐饮服务</option></select></label><label>范围<select value={radius} onChange={e => setRadius(Number(e.target.value))}>{[500,1000,1500,3000].map(r => <option value={r} key={r}>{r} 米</option>)}</select></label>
+    {busy ? <p role="status">正在查找周边…</p> : error ? <p role="alert">{error}<button onClick={() => setRetry(value => value + 1)}>重试</button></p> : !results.length ? <p>附近暂无结果，试试扩大范围。</p> : results.map((poi, index) => <article key={index}><strong>{poi.name}</strong><p>{poi.address}{poi.distance != null ? ` · ${poi.distance} 米` : ""}</p></article>)}
+  </div>;
+}
 
-  React.useEffect(() => {
-    if (messages.length || runs.length) scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
-  }, [messages.length, runs.map(run => `${run.id}:${run.status}`).join("|")]);
-
-  const send = async () => {
-    const text = query.trim();
-    if (!text || (blockingRun && blockingRun.status !== "waiting_user")) return;
-    setQuery(""); setError("");
-    try {
-      if (blockingRun?.status === "waiting_user") {
-        const interactionId = blockingRun.pending_interaction?.interaction_id || blockingRun.outstanding_interaction_id;
-        if (!interactionId) throw new Error("当前任务还不能接收回复");
-        const resumed = await resumeRuntimeRun(blockingRun.id, interactionId, text);
-        setState(previous => {
-          let next = previous;
-          if (resumed.accepted_message) next = ChatState.upsertMessage(next, resumed.accepted_message);
-          return { ...next, runs: { ...next.runs, [blockingRun.id]: { ...next.runs[blockingRun.id], ...resumed } } };
-        });
-        abortsRef.current[blockingRun.id]?.(); delete abortsRef.current[blockingRun.id]; subscribeRun({ ...blockingRun, ...resumed });
-        return;
-      }
-      let conversationId = activeId;
-      if (!conversationId) { const created = await createConversation(`${plan.destination || "旅行"} · 行程调整`); conversationId = created.id; setActiveId(created.id); }
-      const result = await submitConversationMessage(conversationId, text, { related_itinerary_id: planId });
-      setState(previous => {
-        const next = ChatState.upsertMessage(previous, result.message);
-        return { ...next, runs: { ...next.runs, [result.run.id]: result.run } };
-      });
-      subscribeRun(result.run);
-    } catch (errorValue) { setQuery(text); setError(errorValue.message || "发送失败，请重试"); }
-  };
-
-  const controlRun = async (run, action) => {
-    try {
-      const updated = action === "cancel" ? await cancelRuntimeRun(run.id) : await retryRuntimeRun(run.id);
-      setState(previous => ({ ...previous, runs: { ...previous.runs, [updated.id]: updated } }));
-      if (action === "retry") subscribeRun(updated);
-    } catch (errorValue) { setError(errorValue.message || "操作失败"); }
-  };
-  const prompts = [`Day ${dayIdx + 1} 行程轻松一点`, `优化 Day ${dayIdx + 1} 的路线`, day?.theme ? `围绕“${day.theme}”换一个景点` : "换一个更合适的景点"];
-
-  return <section className="rd-chat-panel">
-    <div className="rd-chat-head"><div className="rd-breadcrumb"><button onClick={onBack} aria-label="返回"><UiIcon name="arrow-right" size={17} /></button><span>我的行程</span><b>/</b><em>{plan.destination} · {plan.days.length} 日</em></div><div className="rd-chat-actions"><button onClick={() => setHistoryOpen(value => !value)} aria-expanded={historyOpen}><UiIcon name="menu" size={14} />历史对话</button><button className="rd-collapse" onClick={onCollapse}><UiIcon name="arrow-right" size={14} />收起详情</button><button aria-label="更多"><span>•••</span></button></div></div>
-    {historyOpen && <aside className="rd-history-drawer"><header><div><small>YOUR CONVERSATIONS</small><h3>历史对话</h3></div><button onClick={() => setHistoryOpen(false)}><UiIcon name="close" size={16} /></button></header><p>继续之前的灵感，或查看路线如何一步步变成现在的样子。</p><small>今天</small><button className="current"><strong>{plan.destination} · {plan.days.length} 日游</strong><span>“第二天不要太赶，留一点时间拍照。”</span><em>进行中 · 4 次调整</em></button><small>最近 7 天</small><button><strong>杭州 · 周末漫游</strong><span>西湖边慢走，避开人多的热门路线。</span><em>已完成 · 3 次调整</em></button></aside>}
-    <div className="rd-chat-hero"><div className="rd-kicker"><i />YOUR PERSONAL TRIP PLANNER</div><h1>开始计划<br /><em>下一段旅程。</em></h1><p>把目的地和旅行想法告诉我，<br />我会陪你一起把路线慢慢变清晰。</p><div><span><UiIcon name="clock" size={14} />{displayDateRange || plan.date_range || "日期待定"}</span><span><WeatherGlyph value={plan.weather?.[dayIdx]?.icon || plan.weather?.[dayIdx]?.text} size={14} />{plan.weather?.[dayIdx]?.hi || "—"}° / {plan.weather?.[dayIdx]?.text || "天气待定"}</span></div></div>
-    <div className="rd-conversation" ref={scrollRef} role="log" aria-label="行程调整对话"><div className="rd-conversation-label"><span>CONVERSATION</span><em>AI 已了解右侧行程</em></div><div className="rd-message assistant"><span className="rd-ai-avatar"><UiIcon name="sparkle" size={15} /></span><div><small>旅行助手</small><p>你好，{plan.username}。我已经把 <b>{plan.destination}</b> 的行程整理好了。告诉我你的偏好，我会一边聊天，一边替你调整右侧路线。</p><em>已结合地图上下文</em></div></div>{messages.map(message => <div className={`rd-message ${message.role === "user" ? "user" : "assistant"}`} key={message.id}>{message.role !== "user" && <span className="rd-ai-avatar"><UiIcon name="sparkle" size={15} /></span>}<div>{message.role !== "user" && <small>旅行助手</small>}<p>{message.content}</p><em>{message.role === "user" ? "刚刚" : "已结合地图上下文"}</em></div></div>)}
-      {blockingRun && <div className="rd-run-card"><header><span className="rd-spinner" /><b>{blockingRun.status === "waiting_user" ? "需要你的回复" : "正在调整当前行程"}</b></header><p>{blockingRun.stage_label || blockingRun.pending_interaction?.prompt || "正在结合路线、距离和你的要求生成修改方案。"}</p>{blockingRun.status !== "waiting_user" && <button onClick={() => controlRun(blockingRun, "cancel")}>停止</button>}</div>}
-      {!blockingRun && failedRun && <div className="rd-run-card failed"><header><UiIcon name="alert" size={15} /><b>这次修改没有完成</b></header><p>{failedRun.error_public?.message || "可以保留输入并重新尝试。"}</p><button onClick={() => controlRun(failedRun, "retry")}>重新尝试</button></div>}
-      {loading && <div className="rd-chat-status">正在恢复关联对话…</div>}{error && <div className="rd-chat-status error" role="alert">{error}</div>}
-    </div>
-    <div className="rd-suggestions">{prompts.map(prompt => <button key={prompt} onClick={() => setQuery(prompt)}>{prompt}</button>)}</div>
-    <div className="rd-composer"><textarea value={query} onChange={event => setQuery(event.target.value)} disabled={!!blockingRun && blockingRun.status !== "waiting_user"} onKeyDown={event => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); send(); } }} placeholder={blockingRun?.status === "waiting_user" ? "回答上方问题，继续这次修改…" : blockingRun ? "行程调整中…" : "告诉我你想怎么调整这趟旅程…"} /><footer><span>Enter 发送 · Shift + Enter 换行</span><button onClick={blockingRun && blockingRun.status !== "waiting_user" ? () => controlRun(blockingRun, "cancel") : send} disabled={blockingRun?.status === "waiting_user" ? !query.trim() : !blockingRun && !query.trim()} aria-label="发送"><UiIcon name={blockingRun && blockingRun.status !== "waiting_user" ? "stop" : "arrow-up"} size={17} /></button></footer></div>
-    <footer className="rd-chat-footer"><span><i />旅行助手在线</span><em>AI 会根据你的偏好实时更新右侧路线</em></footer>
+function StudioPlanNotes({ plan, planId, onNotice }) {
+  const [hotel, setHotel] = React.useState(plan.hotel || "");
+  const [notes, setNotes] = React.useState(plan.notes || "");
+  const [saving, setSaving] = React.useState(false);
+  return <section className="studio-notes"><h4>出行提醒</h4>{plan.tips?.length ? <ul>{plan.tips.map((tip, index) => <li key={index}>{tip}</li>)}</ul> : <p>暂无额外出行提醒</p>}
+    <label>住宿<input value={hotel} onChange={event => setHotel(event.target.value)} placeholder="酒店名称、地址或入住安排" /></label>
+    <label>旅行备注<textarea value={notes} onChange={event => setNotes(event.target.value)} placeholder="记录这趟旅行的小事" /></label>
+    <button disabled={saving} onClick={async () => { setSaving(true); try { await savePlanMetadata(planId, { hotel, notes }); onNotice("住宿和备注已保存"); } catch (err) { onNotice(err.message || "保存失败"); } finally { setSaving(false); } }}>{saving ? "保存中…" : "保存住宿与备注"}</button>
   </section>;
 }
 
-function TripDetailPage({ plan: planProp, planId: planIdProp, onRequestModify, currentUsername, onBack, onPlanChange }) {
-  const [plan, setPlan] = React.useState(planProp);
+function TripDetailPage({ plan: planProp, planId: planIdProp, onRequestModify, currentUsername, onBack, onPlanChange, initialDraft, onInitialDraftConsumed, revisionTrigger, onRevisionConsumed, onRequestLogin, onClearPlan, navigationGuardRef, profileOpen = false }) {
+  const emptyPlan = { days: [], weather: [], badges: [], destination: "下一段旅程", username: currentUsername };
+  const [plan, setPlan] = React.useState(planProp || emptyPlan);
   const [planId, setPlanId] = React.useState(planIdProp);
   const [dayIdx, setDayIdx] = React.useState(0);
   const [selectedIndex, setSelectedIndex] = React.useState(0);
@@ -186,11 +177,26 @@ function TripDetailPage({ plan: planProp, planId: planIdProp, onRequestModify, c
   const [resizing, setResizing] = React.useState(false);
   const [chatOnly, setChatOnly] = React.useState(false);
   const [detailOnly, setDetailOnly] = React.useState(false);
-  const [profileOpen, setProfileOpen] = React.useState(false);
+  const [drawer, setDrawer] = React.useState(null);
+  const [overviewOpen, setOverviewOpen] = React.useState(false);
+  const [menu, setMenu] = React.useState(null);
+  const [toolbarHost, setToolbarHost] = React.useState(null);
+  const [draftPlan, setDraftPlan] = React.useState(null);
+  const [tipBusy, setTipBusy] = React.useState(false);
+  const [tipError, setTipError] = React.useState("");
+  const [actionError, setActionError] = React.useState("");
+  const [retryRevert, setRetryRevert] = React.useState(false);
+  const editorRef = React.useRef(null);
+  const drawerRef = React.useRef(null);
+  const drawerTriggerRef = React.useRef(null);
   const [notice, setNotice] = React.useState("");
+  const [editing, setEditing] = React.useState(false);
+  const [optimizing, setOptimizing] = React.useState(false);
+  const [originalDays, setOriginalDays] = React.useState({});
 
   React.useEffect(() => {
-    setPlan(planProp); setPlanId(planIdProp); setDayIdx(0); setSelectedIndex(0);
+    setPlan(planProp || emptyPlan); setPlanId(planIdProp);
+    if (planIdProp !== planId) { setDayIdx(0); setSelectedIndex(0); setEditing(false); setDraftPlan(null); setDrawer(null); setOriginalDays({}); }
   }, [planProp, planIdProp]);
 
   React.useEffect(() => {
@@ -217,17 +223,13 @@ function TripDetailPage({ plan: planProp, planId: planIdProp, onRequestModify, c
     return () => { alive = false; abort?.(); };
   }, [planId, currentUsername]);
 
-  if (!plan?.days?.length) return null;
-  const day = plan.days[dayIdx] || plan.days[0];
+  const hasPlan = !!plan?.days?.length;
+  const viewPlan = editing && draftPlan ? draftPlan : plan;
+  const day = viewPlan.days[dayIdx] || viewPlan.days[0] || { items: [], mapPoints: [] };
   const selected = day.items?.[selectedIndex] || day.items?.[0] || null;
   const weather = plan.weather?.[dayIdx] || plan.weather?.[0];
-  const candidateSource = (plan.candidate_spots?.length ? plan.candidate_spots : day.items || []).slice(0, 3);
-  const candidateFallbacks = ["秦淮河畔", "老门东", "城市园林"];
-  const candidates = [...candidateSource];
-  while (candidates.length < 3) candidates.push({ name: candidateFallbacks[candidates.length] });
-  const badgeFallbacks = ["秦淮河", "梧桐树", "人文漫游"];
-  const coverBadges = [...(plan.badges || []).slice(0, 3)];
-  while (coverBadges.length < 3) coverBadges.push(badgeFallbacks[coverBadges.length]);
+  const candidates = plan.candidate_spots || [];
+  const coverBadges = (plan.badges || []).slice(0, 3);
   const displayDateRange = (() => {
     const start = plan._raw?.start_date;
     const end = plan._raw?.end_date;
@@ -238,29 +240,76 @@ function TripDetailPage({ plan: planProp, planId: planIdProp, onRequestModify, c
   })();
   const showNotice = text => { setNotice(text); window.setTimeout(() => setNotice(""), 2200); };
   const openConversationResult = async resultPlanId => {
-    if (!resultPlanId) return;
+    if (!resultPlanId || (editing && !editorRef.current?.canLeave())) return;
     try {
       const data = await getHistoryItem(resultPlanId);
       if (!data?.plan) return;
       const adapted = adaptPlan(data.plan, currentUsername);
-      setPlan(adapted); setPlanId(resultPlanId); setDayIdx(0); setSelectedIndex(0);
+      setEditing(false); setDraftPlan(null); setDrawer(null);
+      setPlan(adapted); setPlanId(resultPlanId);
+      if (resultPlanId !== planId) { setDayIdx(0); setSelectedIndex(0); }
       onPlanChange?.(data.plan, resultPlanId);
-    } catch {}
+    } catch (error) { showNotice(error.message || "行程加载失败，请重试"); }
   };
   const changeDay = index => {
-    setDayIdx(index); setSelectedIndex(0); setActiveNavKey(null); setActiveNavPair(null);
+    setDayIdx(index); setSelectedIndex(0); setActiveNavKey(null); setActiveNavPair(null); setMenu(null);
+    if (drawer?.type === "search") setDrawer(null);
   };
+
+  const closeDrawer = React.useCallback(() => { setDrawer(null); drawerTriggerRef.current?.focus(); }, []);
+  const openDrawer = value => { drawerTriggerRef.current = document.activeElement; setDrawer(value); setMenu(null); };
+  const finishEdit = () => { setEditing(false); setDraftPlan(null); setDrawer(null); };
+  const beginEdit = () => { setEditing(true); setMenu(null); setDrawer(null); };
+  const prepareNavigation = () => { if (editing && !editorRef.current?.canLeave()) return false; finishEdit(); return true; };
+  React.useEffect(() => {
+    if (!navigationGuardRef) return;
+    navigationGuardRef.current = prepareNavigation;
+    return () => { navigationGuardRef.current = null; };
+  });
+  const leaveWorkspace = callback => { if (prepareNavigation()) callback?.(); };
+  React.useEffect(() => {
+    if (drawer) {
+      drawerRef.current?.focus({ preventScroll: true });
+      if (window.matchMedia("(max-width: 760px)").matches) drawerRef.current?.scrollIntoView({ block: "nearest" });
+    }
+  }, [drawer?.type]);
+  React.useEffect(() => {
+    const escape = event => { if (event.key === "Escape" && !profileOpen) { if (drawer) closeDrawer(); setMenu(null); } };
+    const outside = event => { if (!event.target.closest(".sl-menu-wrap")) setMenu(null); };
+    document.addEventListener("keydown", escape); document.addEventListener("pointerdown", outside);
+    return () => { document.removeEventListener("keydown", escape); document.removeEventListener("pointerdown", outside); };
+  }, [drawer, profileOpen, closeDrawer]);
+  const retryTips = async () => {
+    setTipBusy(true); setTipError("");
+    try { await retryItineraryTips(planId); setPlan(previous => ({ ...previous, tip_status: "queued" })); showNotice("正在重新整理景点贴士"); }
+    catch (error) { setTipError(error.message || "生成失败，请重试"); }
+    finally { setTipBusy(false); }
+  };
+  const optimize = async (revert = false) => {
+    setOptimizing(true); setActionError(""); setRetryRevert(revert); setMenu(null);
+    const index = dayIdx;
+    try {
+      if (revert) await revertDay(planId, index + 1, originalDays[index]);
+      else {
+        const result = await optimizeDay(planId, index + 1);
+        if (result.improved) setOriginalDays(previous => ({ ...previous, [index]: structuredClone(plan._raw.days[index].timeline) }));
+        showNotice(result.improved ? `路线已优化：${result.original_km} → ${result.optimized_km} km` : "当前路线无需优化");
+      }
+      const data = await getHistoryItem(planId); setPlan(adaptPlan(data.plan, currentUsername)); onPlanChange?.(data.plan, planId);
+      if (revert) { setOriginalDays(previous => { const next = { ...previous }; delete next[index]; return next; }); showNotice("已恢复优化前路线"); }
+    } catch (error) { setActionError(error.message || "路线操作失败"); }
+    finally { setOptimizing(false); }
+  };
+  const share = async () => {
+    try { await navigator.clipboard.writeText(`${location.origin}/?view_plan_id=${encodeURIComponent(planId)}`); showNotice("行程链接已复制，登录当前账号后可打开"); }
+    catch { showNotice("复制失败，请检查浏览器剪贴板权限"); }
+  };
+  const drawerTitle = drawer?.type === "notes" ? "旅行资料" : drawer?.type === "search" ? "替换 / 添加地点" : drawer?.type === "nearby" ? `${selected?.name || "地点"}周边` : selected?.name || "地点详情";
 
   return <div className="page page-fade trip-detail-page rd-page">
     <main className="rd-app">
-      <header className="rd-top-nav">
-        <div className="rd-brand"><span className="rd-brand-mark"><i /></span><strong>途见 · AI 旅行规划</strong></div>
-        <div className="rd-studio"><UiIcon name="sparkle" size={14} />AI TRIP STUDIO <span>·</span> {plan.destination} / {(plan._raw?.start_date || "").slice(0, 4) || "2026"}</div>
-        <div className="rd-nav-actions"><button onClick={() => showNotice("行程已保存")} aria-label="保存行程"><UiIcon name="check" size={16} /></button><button className="rd-avatar" onClick={() => setProfileOpen(true)}>{String(plan.username || currentUsername || "旅").slice(0, 1)}</button></div>
-      </header>
-
       <section className={`rd-workspace${chatOnly ? " chat-only" : ""}${detailOnly ? " detail-only" : ""}`} style={{ "--rd-detail-width": `${detailWidth}%` }}>
-        <RedesignCopilot plan={plan} planId={planId} day={day} dayIdx={dayIdx} displayDateRange={displayDateRange} currentUsername={currentUsername} onBack={onBack} onCollapse={() => { setChatOnly(true); setDetailOnly(false); }} onPlanResult={openConversationResult} />
+        <RedesignCopilot onBeforeConversationChange={prepareNavigation} inputDisabled={editing} currentUsername={currentUsername} relatedPlanId={planId} onBack={() => leaveWorkspace(onBack)} onToggleDetail={() => { setChatOnly(value => !value); setDetailOnly(false); }} onOpenPlan={openConversationResult} onPlanResult={openConversationResult} onClearPlan={() => leaveWorkspace(onClearPlan)} initialDraft={initialDraft} onInitialDraftConsumed={onInitialDraftConsumed} revisionTrigger={revisionTrigger} onRevisionConsumed={onRevisionConsumed} onRequestLogin={onRequestLogin} />
         <div className="rd-divider" role="separator" tabIndex="0" aria-label="调整对话和行程详情宽度" aria-orientation="vertical" aria-valuemin="40" aria-valuemax="70" aria-valuenow={Math.round(detailWidth)} onPointerDown={event => { event.preventDefault(); setResizing(true); }} onDoubleClick={() => setDetailWidth(54)} onKeyDown={event => {
           if (event.key === "Home") setDetailWidth(54);
           if (event.key === "ArrowLeft") setDetailWidth(value => Math.min(70, value + 2));
@@ -268,46 +317,50 @@ function TripDetailPage({ plan: planProp, planId: planIdProp, onRequestModify, c
         }}><span /></div>
 
         <section className="rd-detail-panel">
-          <div className="rd-detail-header">
-            <div className="rd-cover" style={{ backgroundImage: "linear-gradient(100deg, rgba(49,38,31,.82), rgba(74,58,46,.22)), url('/assets/trip-redesign/nanjing-cover.png')" }}><div><small>ITINERARY · 行程总览</small><h2>{plan.title}</h2><p>{coverBadges.map((badge, index) => <span key={`${badge}-${index}`}>{badge}</span>)}</p></div></div>
-            <div className="rd-weather-strip">{plan.days.map((item, index) => {
-              const itemWeather = plan.weather?.[index] || weather;
-              const weekday = String(item.date || "").match(/周[日一二三四五六]/)?.[0];
-              return <div key={index}><WeatherGlyph value={itemWeather?.icon || itemWeather?.text} size={18} /><strong>Day {index + 1}{weekday ? ` · ${weekday}` : ""}</strong><small>{itemWeather?.text || "天气待定"} <b>{itemWeather?.hi || "—"}°</b> / {itemWeather?.lo || "—"}°</small></div>;
-            })}</div>
-            <div className="rd-detail-title"><div><small>TRIP DETAIL / {plan.destination}</small><h2>路线详情</h2></div><div><button onClick={() => { setDetailOnly(value => !value); setChatOnly(false); }}><UiIcon name="arrow-right" size={14} />收起对话</button><button className="primary" onClick={() => showNotice("分享链接已复制")}>分享行程 <UiIcon name="share" size={14} /></button></div></div>
-            <nav className="rd-day-tabs" role="tablist">{plan.days.map((item, index) => <button key={index} role="tab" aria-selected={dayIdx === index} className={dayIdx === index ? "active" : ""} onClick={() => changeDay(index)}><span>{String(index + 1).padStart(2, "0")}</span><div><strong>Day {index + 1}</strong><small>{item.date}</small></div><i /></button>)}</nav>
+          {!hasPlan ? <div className="studio-detail-empty"><div className="rd-kicker">YOUR NEXT JOURNEY</div><UiIcon name="map" size={58} /><h2>把想去的地方，<br />慢慢变成一段旅程。</h2><p>在左侧和途途聊聊。确认旅行需求后，<br />完整路线、每日安排与地图会在这里展开。</p></div> : <>
+          <div className="rd-detail-header sl-detail-header">
+            <div className="sl-heading-row"><div className="sl-heading-copy"><small>YOUR ITINERARY</small><h2>{plan.title}</h2></div>
+              <div className="sl-toolbar" ref={setToolbarHost}>{!editing && <><button disabled={optimizing} aria-label="编辑行程" onClick={beginEdit}><UiIcon name="edit" size={15} />编辑</button><button className="primary" onClick={share}><UiIcon name="share" size={15} />分享</button><div className="sl-menu-wrap"><button aria-label="更多行程操作" aria-expanded={menu === "trip"} onClick={() => setMenu(menu === "trip" ? null : "trip")}><UiIcon name="menu" size={17} /></button>{menu === "trip" && <div className="sl-menu"><button onClick={() => openDrawer({ type: "notes" })}>旅行资料</button><button onClick={() => { setDetailOnly(value => !value); setChatOnly(false); setMenu(null); }}>{detailOnly ? "显示 AI 对话" : "收起 AI 对话"}</button></div>}</div></>}</div>
+            </div>
+            <div className="sl-heading-links"><button aria-expanded={overviewOpen} onClick={() => setOverviewOpen(value => !value)}>行程概览 <UiIcon name={overviewOpen ? "chevron-up" : "chevron-down"} size={12} /></button><button onClick={() => openDrawer({ type: "notes" })}>旅行资料</button></div>
+            {overviewOpen && <div className="sl-overview"><div className="rd-cover" style={{ backgroundImage: `linear-gradient(100deg, rgba(49,38,31,.82), rgba(74,58,46,.22))${plan.days.flatMap(item => item.items).find(item => item.photo)?.photo ? `, url("${plan.days.flatMap(item => item.items).find(item => item.photo).photo}")` : ""}` }}><div><small>ITINERARY · 行程总览</small><p>{displayDateRange}</p><p>{coverBadges.map((badge, index) => <span key={index}>{badge}</span>)}</p></div></div></div>}
+            <nav className="rd-day-tabs sl-day-tabs" role="tablist" aria-label="行程日期">{plan.days.map((item, index) => {
+              const forecast = plan.weather?.[index];
+              return <button key={index} role="tab" aria-selected={dayIdx === index} disabled={optimizing} className={dayIdx === index ? "active" : ""} onClick={() => changeDay(index)}><div><strong>Day {index + 1} <span>{item.date}</span></strong><small><WeatherGlyph value={forecast?.icon || forecast?.text} size={14} />{forecast?.text || "天气待定"}{forecast?.hi != null ? ` ${forecast.hi}° / ${forecast.lo ?? "—"}°` : ""}</small></div><i /></button>;
+            })}</nav>
           </div>
 
-          <div className="rd-detail-body">
-            <section className="rd-route-column"><header><div><small>老城人文线 · {String(dayIdx + 1).padStart(2, "0")}</small><h3>{day.theme || `Day ${dayIdx + 1} 的旅行安排`}</h3></div><span><strong>{day.items.length ? 1 : 0}/{day.items.length}</strong>已完成</span></header>
-              <div className="rd-candidate-title"><span><UiIcon name="sparkle" size={13} />为你挑选的地点</span><button onClick={() => showNotice("候选地点已更新")}>换一批</button></div>
-              <div className="rd-candidates">{candidates.map((candidate, index) => {
-                const name = candidate.name || candidate.title || `候选地点 ${index + 1}`;
-                const fallbackPhotos = [
-                  "/assets/trip-redesign/nanjing-cover.png",
-                  "/assets/trip-redesign/nanjing-cover.png",
-                  "/assets/trip-redesign/nanjing-cover.png",
-                ];
-                const photo = candidate.photo || candidate.image || fallbackPhotos[index];
-                return <article key={`${name}-${index}`} style={{ backgroundImage: `linear-gradient(0deg, rgba(25,31,27,.72), transparent 70%), url('${photo}')` }}><strong>{name}</strong><small>{candidate.rating ? `${candidate.rating} ★` : index % 2 ? "街区 · 4.7 ★" : "人文 · 4.8 ★"}</small></article>;
-              })}</div>
-              <RedesignTimeline items={day.items} selectedIndex={selectedIndex} onSelect={setSelectedIndex} activeNavKey={activeNavKey} tipStatus={plan.tip_status} onNav={(key, pair) => { setActiveNavKey(key); setActiveNavPair(key ? pair : null); }} />
+          <div className="rd-detail-body sl-detail-body">
+            <section className="rd-route-column"><header><div><small>DAY {String(dayIdx + 1).padStart(2, "0")} · {day.items.length} 个安排</small><h3>{day.theme || `Day ${dayIdx + 1} 的旅行安排`}</h3></div>{!editing && <div className="sl-menu-wrap"><button className="sl-day-more" aria-label="当天路线操作" aria-expanded={menu === "day"} disabled={optimizing} onClick={() => setMenu(menu === "day" ? null : "day")}><UiIcon name="menu" size={16} /></button>{menu === "day" && <div className="sl-menu"><button onClick={() => optimize()}>优化当天路线</button>{originalDays[dayIdx] && <button onClick={() => optimize(true)}>撤回路线优化</button>}<button onClick={() => { beginEdit(); openDrawer({ type: "search", target: { dayIdx, index: null, type: "attraction" } }); }}>添加地点</button></div>}</div>}</header>
+              {optimizing && <p role="status" className="sl-edit-hint">正在更新当天路线…</p>}
+              {actionError && <p role="alert" className="sl-error">{actionError}<button onClick={() => optimize(retryRevert)}>重试</button></p>}
+              {editing ? <StudioPlanEditor key={planId} ref={editorRef} plan={plan} planId={planId} dayIdx={dayIdx} currentUsername={currentUsername} toolbarHost={toolbarHost} onSearch={target => openDrawer({ type: "search", target })} onPreview={setDraftPlan} onClose={finishEdit} onSaved={raw => { setPlan(adaptPlan(raw, currentUsername)); onPlanChange?.(raw, planId); }} /> : <RedesignTimeline items={day.items} selectedIndex={selectedIndex} onSelect={index => { setSelectedIndex(index); openDrawer({ type: "place" }); }} activeNavKey={activeNavKey} tipStatus={plan.tip_status} onNav={(key, pair) => { setActiveNavKey(key); setActiveNavPair(key ? pair : null); }} />}
             </section>
 
             <section className="rd-map-column" aria-label={`Day ${dayIdx + 1} 路线地图`}>
-              <RedesignMapFallback items={day.items} selectedIndex={selectedIndex} onSelect={setSelectedIndex} />
-              <MapPanel day={day} dayIdx={dayIdx} navPair={activeNavPair} onNavClear={() => { setActiveNavKey(null); setActiveNavPair(null); }} />
-              <div className="rd-map-demo-controls" aria-label="地图显示选项"><button className="active" aria-label="路线"><UiIcon name="navigation" size={17} /></button><button aria-label="图层"><UiIcon name="map" size={17} /></button><button aria-label="全屏"><UiIcon name="arrow-right" size={17} /></button></div>
-              <div className="rd-map-zoom" aria-label="地图缩放"><button aria-label="放大"><UiIcon name="plus" size={14} /></button><span>12</span><button aria-label="缩小"><UiIcon name="minus" size={14} /></button></div>
-              {selected && <div className="rd-map-card"><small>NOW VIEWING</small><strong>{selected.name}</strong><span>{selected.address || selected.addr || (selected.type === "attraction" ? "已同步地图位置" : "本地餐饮")} · {itemDuration(selected)}</span><div><em><UiIcon name="navigation" size={13} />路线实时联动</em><em><WeatherGlyph value={weather?.icon || weather?.text} size={13} />{weather?.hi || "—"}° {weather?.text || ""}</em></div></div>}
+              <MapPanel day={day} dayIdx={dayIdx} workbenchControls selectedLocation={selected?.location} navPair={activeNavPair} onNavClear={() => { setActiveNavKey(null); setActiveNavPair(null); }} />
+              {selected && !drawer && <button className="sl-map-summary" onClick={() => openDrawer({ type: "place" })}><UiIcon name="location" size={15} /><strong>{selected.name}</strong><span>{itemDuration(selected)}</span><UiIcon name="chevron-up" size={15} /></button>}
+              <aside hidden={!drawer} ref={drawerRef} tabIndex="-1" className="sl-drawer" role="region" aria-label={drawerTitle}>
+                <header><div><small>{drawer?.type === "notes" ? "TRAVEL NOTES" : "PLACE DETAILS"}</small><h3>{drawerTitle}</h3></div><button aria-label="关闭详情抽屉" onClick={closeDrawer}><UiIcon name="close" size={18} /></button></header>
+                <div className="sl-drawer-body">
+                  <div hidden={drawer?.type !== "notes"}><StudioPlanNotes key={planId} plan={plan} planId={planId} onNotice={showNotice} /></div>
+                  {drawer?.type === "place" && selected && <div className="sl-place-details">
+                    <p className="sl-place-duration">{itemDuration(selected)}{selected.rating != null ? ` · ${selected.rating} 分` : ""}</p>
+                    <dl><dt>开放时间</dt><dd>{selected.open || "暂无开放时间，请以景区公告为准"}</dd><dt>地址</dt><dd>{selected.address || selected.addr || "暂无地址"}</dd>{selected.cost && <><dt>参考费用</dt><dd>{formatPoiCost(selected.cost)}</dd></>}{selected.tel && <><dt>联系电话</dt><dd>{selected.tel}</dd></>}</dl>
+                    <section className="sl-tips"><h4>游玩贴士</h4><p>{selected.note || selected.reason || "暂无详细贴士"}</p>{["queued", "running"].includes(plan.tip_status) && <p role="status">正在整理最新贴士…</p>}{(tipError || ["failed", "unavailable"].includes(plan.tip_status)) && <p className="sl-error" role="alert">{tipError || "贴士尚未更新，可重新生成"}</p>}<button disabled={editing || tipBusy || ["queued", "running"].includes(plan.tip_status)} onClick={retryTips}>{tipBusy ? "提交中…" : tipError || plan.tip_status === "failed" ? "重试生成贴士" : "重新生成景点贴士"}</button></section>
+                    <div className="sl-place-actions">{selected.location && <button onClick={() => openDrawer({ type: "nearby" })}>查看周边</button>}<button disabled={editing || optimizing} onClick={() => { beginEdit(); openDrawer({ type: "search", target: { dayIdx, index: selectedIndex, type: selected.type } }); }}>替换地点</button></div>
+                  </div>}
+                  {drawer?.type === "nearby" && selected?.location && <><button onClick={() => openDrawer({ type: "place" })}>返回地点详情</button><StudioNearby item={selected} /></>}
+                  {drawer?.type === "search" && <StudioPoiPicker key={`${drawer.target.dayIdx}:${drawer.target.index}:${drawer.target.type}`} city={plan.destination} target={drawer.target} candidates={candidates} onPick={poi => { editorRef.current?.pick(poi, drawer.target); closeDrawer(); }} />}
+                </div>
+              </aside>
             </section>
           </div>
+          </>}
         </section>
         {chatOnly && <button className="rd-reopen detail" onClick={() => setChatOnly(false)}>显示行程详情</button>}{detailOnly && <button className="rd-reopen chat" onClick={() => setDetailOnly(false)}>显示 AI 对话</button>}
       </section>
 
-      {profileOpen && <div className="rd-profile-backdrop" onMouseDown={() => setProfileOpen(false)}><section className="rd-profile" role="dialog" aria-modal="true" onMouseDown={event => event.stopPropagation()}><header><div><small>MY PROFILE · 我的画像</small><h2>{plan.username}的旅行画像</h2></div><button onClick={() => setProfileOpen(false)}><UiIcon name="close" size={17} /></button></header><div className="rd-profile-id"><span>{String(plan.username || "旅").slice(0, 1)}</span><div><strong>慢旅行者</strong><p>AI 已根据你的对话，整理出这份专属偏好。</p></div><em>已了解 78%</em></div><h4>旅行偏好</h4><div className="rd-profile-tags">{(plan.badges?.length ? plan.badges : ["人文历史", "城市漫步", "本地餐厅", "避开人潮"]).map(tag => <span key={tag}>{tag}</span>)}</div><div className="rd-profile-note"><UiIcon name="sparkle" size={16} /><p>之后的规划会优先推荐有故事的街区、安静的拍照点和值得专程去吃的小店。</p></div></section></div>}
       {notice && <div className="rd-toast" role="status"><UiIcon name="check" size={14} />{notice}</div>}
     </main>
   </div>;

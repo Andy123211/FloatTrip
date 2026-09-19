@@ -166,14 +166,14 @@ function DayMap({ mapPoints, dayKey }) {
   );
 }
 
-function MapPanel({ day, dayIdx, navPair, onNavClear, children, workbenchControls = false }) {
+function MapPanel({ day, dayIdx, selectedLocation, navPair, onNavClear, children, workbenchControls = false }) {
   const amapRef = React.useRef(null);
   // null=尝试加载中（显示 SVG 占位） true=高德地图就绪 false=降级 SVG
   const [amapReady, setAmapReady] = React.useState(null);
   const hasGeo = (day.mapPoints || []).some(p => p.lat && p.lng);
 
   // 点位签名：优化路线后同一天的点位顺序变化时也要重画地图
-  const ptsSig = (day.mapPoints || []).map(p => p.name).join("|");
+  const ptsSig = (day.mapPoints || []).map(p => `${p.name}:${p.lat}:${p.lng}`).join("|");
 
   React.useEffect(() => {
     if (!hasGeo) { setAmapReady(false); return; }
@@ -181,6 +181,10 @@ function MapPanel({ day, dayIdx, navPair, onNavClear, children, workbenchControl
     initAmapForDay(amapRef.current, day.mapPoints).then(ok => { if (alive) setAmapReady(ok); });
     return () => { alive = false; };
   }, [dayIdx, hasGeo, ptsSig]);
+
+  React.useEffect(() => {
+    if (amapReady === true && selectedLocation) focusAmapLocation(amapRef.current, selectedLocation);
+  }, [amapReady, selectedLocation?.lat, selectedLocation?.lng]);
 
   // 导航对 / 恢复全日路线
   React.useEffect(() => {
@@ -218,11 +222,12 @@ function MapPanel({ day, dayIdx, navPair, onNavClear, children, workbenchControl
             }}
           />
         )}
+        {workbenchControls && amapReady !== true && <span className="studio-map-status">{hasGeo ? "地图暂不可用 · 地点相对位置示意" : "暂无地点坐标"}</span>}
         {workbenchControls && (
           <div className="detail-map-controls" aria-label="地图控制">
-            <button onClick={() => controlAmap(amapRef.current, "zoom-in")} aria-label="放大地图"><UiIcon name="plus" size={18} /></button>
-            <button onClick={() => controlAmap(amapRef.current, "zoom-out")} aria-label="缩小地图"><UiIcon name="minus" size={18} /></button>
-            <button onClick={() => controlAmap(amapRef.current, "fit")} aria-label="显示完整路线"><UiIcon name="compress" size={17} /></button>
+            <button disabled={amapReady !== true} onClick={() => controlAmap(amapRef.current, "zoom-in")} aria-label="放大地图"><UiIcon name="plus" size={18} /></button>
+            <button disabled={amapReady !== true} onClick={() => controlAmap(amapRef.current, "zoom-out")} aria-label="缩小地图"><UiIcon name="minus" size={18} /></button>
+            <button disabled={amapReady !== true} onClick={() => controlAmap(amapRef.current, "fit")} aria-label="显示完整路线"><UiIcon name="compress" size={17} /></button>
           </div>
         )}
       </div>

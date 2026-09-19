@@ -16,7 +16,7 @@ def test_frontend_html_disables_cache_and_versions_all_local_assets():
         "tweaks-panel.jsx", "mascot.jsx", "components.jsx", "edit.jsx",
         "pages.jsx", "main.jsx",
     ):
-        assert f'/{asset}?v=20260902-blurry-blob' in html
+        assert f'/{asset}?v=20260905-shared-navigation' in html
 
 
 def test_frontend_serves_the_duck_guide_icon():
@@ -115,33 +115,36 @@ def test_itinerary_detail_subscribes_to_async_tip_updates_without_remounting():
 def test_itinerary_detail_uses_the_redesign_workspace_with_live_core_features():
     client = TestClient(app)
     pages = client.get("/pages.jsx?v=20260830-duck-brand").text
-    redesign = client.get("/detail-redesign.jsx?v=20260902-redesign").text
+    redesign = client.get("/detail-redesign.jsx?v=20260905-shared-navigation").text
     main = client.get("/main.jsx?v=20260830-duck-brand").text
     components = client.get("/components.jsx?v=20260830-duck-brand").text
     api = client.get("/api.js?v=20260830-duck-brand").text
     css = client.get("/style.css?v=20260830-duck-brand").text
     html = client.get("/").text
 
-    assert '{page !== "detail" && <header className="topbar">' in main
+    assert '<header className="topbar">' in main
     assert "function LegacyTripDetailPage" in pages
-    assert '<script type="text/babel" src="/detail-redesign.jsx?v=20260902-redesign"></script>' in html
+    assert '<script type="text/babel" src="/detail-redesign.jsx?v=20260905-shared-navigation"></script>' in html
     assert "function TripDetailPage" in redesign
-    assert 'className="rd-top-nav"' in redesign
+    assert 'className="rd-top-nav"' not in redesign
     assert 'className="rd-chat-panel"' in redesign
     assert 'className="rd-detail-panel"' in redesign
     assert 'className="rd-divider" role="separator"' in redesign
     assert 'onDoubleClick={() => setDetailWidth(54)}' in redesign
-    assert 'className="rd-day-tabs"' in redesign
-    assert "function RedesignMapFallback" in redesign
-    assert 'className="rd-map-demo-controls"' in redesign
-    assert 'className="rd-map-zoom"' in redesign
-    assert '<MapPanel day={day} dayIdx={dayIdx}' in redesign
-    assert 'submitConversationMessage(conversationId, text, { related_itinerary_id: planId })' in redesign
-    assert 'listConversations(planId)' in redesign
-    assert 'streamRuntimeRun(run.id, 0' in redesign
-    assert 'resumeRuntimeRun(blockingRun.id, interactionId, text)' in redesign
-    assert 'retryRuntimeRun(run.id)' in redesign
-    assert 'cancelRuntimeRun(run.id)' in redesign
+    assert 'className="rd-day-tabs sl-day-tabs"' in redesign
+    assert "RedesignMapFallback" not in redesign
+    assert '<MapPanel day={day} dayIdx={dayIdx} workbenchControls' in redesign
+    assert '<ChatPage embedded {...props}' in redesign
+    assert 'related_itinerary_id: relatedPlanId' in pages
+    assert 'listConversations(relatedPlanId)' in pages
+    assert 'streamRuntimeRun(run.id, cursor' in pages
+    assert 'resumeRuntimeRun(run.id, interaction.interaction_id, content)' in pages
+    assert 'retryRuntimeRun(run.id)' in pages
+    assert 'cancelRuntimeRun(run.id)' in pages
+    assert '<ProfilePage currentUsername={currentUsername}' in redesign
+    assert '已了解 78%' not in redesign
+    assert '分享链接已复制' not in redesign
+    assert 'navigator.clipboard.writeText' in redesign
     assert 'workbenchControls' in components
     assert 'function controlAmap(container, action)' in api
     assert '.rd-app {' in css
@@ -151,9 +154,9 @@ def test_itinerary_detail_uses_the_redesign_workspace_with_live_core_features():
     assert '.rd-map-fallback{' in css
     assert '.rd-map-zoom{' in css
     assert '@media(prefers-reduced-motion:reduce)' in css
-    assert "optimizeDay(" not in redesign
-    assert "saveTimeline(" not in redesign
-    assert "savePlanMetadata(" not in redesign
+    assert "optimizeDay(" in redesign
+    assert "saveTimeline(" in redesign
+    assert "savePlanMetadata(" in redesign
 
 
 def test_duck_brand_tokens_themes_fonts_and_internal_icons_are_locked():

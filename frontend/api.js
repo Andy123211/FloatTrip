@@ -69,9 +69,9 @@ async function checkAuth() {
   try {
     const r = await fetch("/api/profile", { headers: authHeaders() });
     if (r.ok) return await r.json();
-    if (r.status === 401) clearAuth();
-    return null;
-  } catch { return null; }
+    if (r.status === 401) { clearAuth(); return null; }
+    return a;
+  } catch { return a; }
 }
 
 /* ── Conversations / Agent Runtime ────────────────── */
@@ -233,9 +233,7 @@ async function getHistory() {
 async function getHistoryPage(limit = 6, cursor = null) {
   const params = new URLSearchParams({ limit: String(limit) });
   if (cursor) params.set("cursor", cursor);
-  const r = await fetch(`/api/history?${params}`, { headers: authHeaders() });
-  if (!r.ok) throw new Error("历史行程暂时无法加载");
-  const data = await r.json();
+  const data = await apiJson(`/api/history?${params}`);
   return {
     items: Array.isArray(data?.items) ? data.items : [],
     next_cursor: data?.next_cursor || null,
@@ -243,9 +241,7 @@ async function getHistoryPage(limit = 6, cursor = null) {
 }
 
 async function getHistoryItem(id) {
-  const r = await fetch("/api/history/" + id, { headers: authHeaders() });
-  if (!r.ok) return null;
-  return r.json();
+  return apiJson("/api/history/" + encodeURIComponent(id));
 }
 
 function retryItineraryTips(id) {
@@ -289,9 +285,7 @@ async function streamItineraryTips(id, callbacks = {}) {
 
 /* ── Profile ──────────────────────────────────────── */
 async function getProfile() {
-  const r = await fetch("/api/profile", { headers: authHeaders() });
-  if (!r.ok) return null;
-  return r.json();
+  return apiJson("/api/profile");
 }
 function createMemoryFact(data) {
   return apiJson("/api/memories", { method: "POST", body: JSON.stringify(data) });
@@ -471,6 +465,13 @@ async function initAmapForDay(container, points) {
     if (path.length >= 2) drawRealRoute(AMap, inst, path);
     return true;
   } catch { return false; }
+}
+
+function focusAmapLocation(container, location) {
+  const instance = container && _amapByContainer.get(container);
+  if (instance && Number.isFinite(location?.lng) && Number.isFinite(location?.lat)) {
+    instance.map.panTo([location.lng, location.lat]);
+  }
 }
 
 function destroyAmap(container) {
