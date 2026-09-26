@@ -1,0 +1,24 @@
+{
+  "frozen_at": "2026-09-19T07:22:33.518974+00:00",
+  "development_cities": [
+    "上海",
+    "南京"
+  ],
+  "holdout_cities": [
+    "北京",
+    "重庆"
+  ],
+  "hashes": {
+    "sources.json": "333717d9d2f455ab79dfbdeaaac69984b41f0012f57da8261d353909eee700eb",
+    "cases.json": "2d634a8f8fccf40ef445ef1072f89180cdbd181a447f783ffcdfe67053e0e606",
+    "RUBRIC.md": "2986b93cef0221a663fb08d4d67d0ba9583b7fc8a9a7812075a179245d25b412",
+    "catalog.json": "187b6e1c2929baa0fa86d4527e752092cd0123642479152b15814b63fd53c178"
+  },
+  "gate": {
+    "each_city_C_pass_minimum": 29,
+    "each_city_planning_trials": 36,
+    "C_confirmed_hard_violations": 0,
+    "holdout_score_and_pass_strictly_above_A": true,
+    "development_score_and_pass_not_below_A": true
+  }
+}

@@ -201,6 +201,18 @@ def test_zero_solver_budget_uses_deterministic_fallback():
     assert result.diagnostics.fallback_used is True
 
 
+@pytest.mark.parametrize("solver_seconds", [0, 1])
+def test_solver_and_fallback_generate_daily_theme_names(solver_seconds):
+    result = AttractionSubsetOptimizer(max_time_seconds=solver_seconds).solve(
+        [candidate("上海动物园", 0, must_visit=True), candidate("七宝老街", 1, must_visit=True)],
+        days=1,
+        habit_preference="慢节奏",
+        max_per_day=2,
+    )
+    assert result.route[0]["theme"] == "自然寻趣·老街慢游"
+    assert {spot["name"] for spot in result.route[0]["spots"]} == {"上海动物园", "七宝老街"}
+
+
 def test_profile_weight_change_only_changes_soft_selection():
     food = candidate("夜市", 0, preference=0.0, representative=0.5, scene="dinner")
     museum = candidate("博物馆", 1, preference=1.0, representative=0.5)

@@ -70,3 +70,26 @@ def test_history_cursor_requires_auth_and_rejects_invalid_values(client):
     assert client.get("/api/history?limit=6").status_code == 401
     headers = _headers_and_history(1)
     assert client.get("/api/history?limit=6&cursor=bad", headers=headers).status_code == 400
+
+
+def test_history_detail_displays_daily_theme_without_rewriting_saved_route(client):
+    from app.core.database import get_conn
+    from app.core.memory import load_itinerary, update_plan_json
+
+    headers = _headers_and_history(1)
+    plan_id = client.get("/api/history", headers=headers).json()[0]["id"]
+    plan = {"destination": "上海", "days": [{
+        "day": 1, "theme": "上海动物园与七宝老街", "timeline": [
+            {"type": "attraction", "name": "上海动物园"},
+            {"type": "attraction", "name": "七宝老街"},
+        ],
+    }]}
+    with get_conn() as conn:
+        user_id = conn.execute("SELECT user_id FROM itineraries WHERE id=?", (plan_id,)).fetchone()[0]
+        assert update_plan_json(plan_id, user_id, plan, conn, expected_lock_version=1)
+    response = client.get(f"/api/history/{plan_id}", headers=headers)
+    assert response.status_code == 200
+    assert response.json()["plan"]["days"][0]["theme"] == "自然寻趣·老街慢游"
+    with get_conn() as conn:
+        assert load_itinerary(plan_id, conn)["plan"] == plan
+    assert client.get(f"/api/history/{plan_id}").status_code == 401

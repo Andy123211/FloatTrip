@@ -191,9 +191,34 @@ class ChatService:
         self, run: dict[str, Any], itinerary_id: str, modification_notes: str
     ) -> tuple[str | None, dict[str, Any] | None]:
         """Run Revision as a task tool; bubble any subagent question to the caller."""
+        bound = run["request_snapshot"].get("related_itinerary_id")
+        if bound and bound != itinerary_id:
+            from app.planning.revision import RevisionSearchFailure
+            error = RevisionSearchFailure("revision target mismatch")
+            error.public_code = "revision_target_mismatch"
+            error.public_message = "这条消息引用的是另一份行程，请重新选择要修改的方案。"
+            error.public_retryable = False
+            raise error
         summary = await asyncio.to_thread(
             self._owned_itinerary_summary, run["user_id"], itinerary_id
         )
+        # Accepted answers are also available to pre-upgrade waiting tools whose
+        # old checkpoint had no revision child graph. Never silently submit one.
+        def accepted_answers():
+            with get_conn(self.manager.db_path) as conn:
+                rows = conn.execute(
+                    "SELECT value_json FROM run_interaction_responses WHERE run_id=? ORDER BY created_at,interaction_id",
+                    (run["id"],),
+                ).fetchall()
+            return [json.loads(row["value_json"]) for row in rows]
+        user_message = str(run["request_snapshot"].get("text") or modification_notes)
+        for answer in await asyncio.to_thread(accepted_answers):
+            text = answer if isinstance(answer, str) else json.dumps(answer, ensure_ascii=False)
+            if text.strip():
+                if text.strip() not in modification_notes:
+                    modification_notes += f"\n【用户补充】{text.strip()}"
+                if text.strip() not in user_message:
+                    user_message += f"\n【用户补充】{text.strip()}"
         memory = await asyncio.to_thread(
             self.memory_context.memories.get, run["user_id"], run["conversation_id"]
         )
@@ -201,6 +226,7 @@ class ChatService:
             **run,
             "request_snapshot": {
                 "modification_notes": modification_notes,
+                "revision_user_message": user_message,
                 "parent_plan_id": itinerary_id,
                 "related_itinerary_id": itinerary_id,
                 "destination": summary.get("destination"),
@@ -213,17 +239,13 @@ class ChatService:
             PlanningFinalizer, revision_snapshot_to_state,
         )
 
-        graph = build_runtime_revision_graph()
-        state = await revision_snapshot_to_state(task_run)
+        # Inherit the parent graph checkpoint and task namespace. LangGraph resumes
+        # the interrupted child node, so completed search nodes are not replayed.
+        graph = build_runtime_revision_graph(checkpointer=True)
+        state = await revision_snapshot_to_state(task_run, self.manager.db_path)
         latest: dict[str, Any] = {}
         async for part in graph.astream(
-            state, stream_mode=["custom", "updates", "values"], version="v2",
-            config={
-                "configurable": {
-                    "thread_id": str(run["conversation_id"]),
-                    "checkpoint_ns": f"run:{run['id']}:revision",
-                }
-            },
+            state, stream_mode=["custom", "updates", "values"], version="v2", durability="sync",
         ):
             data = part.get("data") or {}
             if part.get("type") == "custom" and isinstance(data, dict):
@@ -233,8 +255,8 @@ class ChatService:
                     data.get("__interrupt__") if isinstance(data, dict) else None
                 ) or part.get("interrupts") or ()
                 if interrupts:
-                    value = getattr(interrupts[0], "value", None) or {}
-                    return None, value if isinstance(value, dict) else {"question": str(value)}
+                    from langgraph.errors import GraphInterrupt
+                    raise GraphInterrupt(tuple(interrupts))
                 if part.get("type") == "values":
                     values = self._graph_values(data)
                     if values:

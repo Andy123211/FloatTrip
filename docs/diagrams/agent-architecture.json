@@ -1,0 +1,252 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "FloatTrip · 主 Agent 与子任务分工",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "viewBox": [
+      1395,
+      780
+    ]
+  },
+  "components": [
+    {
+      "id": "conversation",
+      "type": "frontend",
+      "label": "用户 · 对话界面",
+      "sublabel": "HTTP 请求 / SSE 进度与结果",
+      "pos": [
+        45,
+        55
+      ],
+      "size": [
+        260,
+        82
+      ]
+    },
+    {
+      "id": "runtime",
+      "type": "messagebus",
+      "label": "Agent Runtime",
+      "sublabel": "调度、事件持久化、暂停与恢复",
+      "pos": [
+        400,
+        55
+      ],
+      "size": [
+        280,
+        82
+      ]
+    },
+    {
+      "id": "main-agent",
+      "type": "backend",
+      "label": "主 Agent · ReAct",
+      "sublabel": "理解需求、维护 Brief、选择工具",
+      "tag": "DeepSeek · create_agent",
+      "pos": [
+        45,
+        300
+      ],
+      "size": [
+        260,
+        100
+      ]
+    },
+    {
+      "id": "ordinary-tools",
+      "type": "database",
+      "label": "受控业务工具",
+      "sublabel": "记忆 / 方案查询 / Brief / 任务控制",
+      "pos": [
+        45,
+        590
+      ],
+      "size": [
+        280,
+        85
+      ]
+    },
+    {
+      "id": "planning-task",
+      "type": "backend",
+      "label": "新行程 · Planner task",
+      "sublabel": "已确认 Brief → 天气 → 高德 POI",
+      "tag": "submit_current_brief",
+      "pos": [
+        420,
+        230
+      ],
+      "size": [
+        280,
+        100
+      ]
+    },
+    {
+      "id": "candidate-agent",
+      "type": "backend",
+      "label": "Candidate Builder · LLM",
+      "sublabel": "补充景点语义，绑定真实 POI",
+      "pos": [
+        765,
+        230
+      ],
+      "size": [
+        280,
+        100
+      ]
+    },
+    {
+      "id": "solver-gate",
+      "type": "security",
+      "label": "优化器 + 质量门禁",
+      "sublabel": "算法排程、独立复算；通过后落库",
+      "tag": "失败最多修复候选 1 次",
+      "pos": [
+        1090,
+        230
+      ],
+      "size": [
+        280,
+        100
+      ]
+    },
+    {
+      "id": "revision-task",
+      "type": "backend",
+      "label": "已有行程 · Revision task",
+      "sublabel": "基础行程 + 用户修改要求",
+      "tag": "start_revision",
+      "pos": [
+        420,
+        510
+      ],
+      "size": [
+        280,
+        100
+      ]
+    },
+    {
+      "id": "revision-agents",
+      "type": "backend",
+      "label": "Planner ⇄ Reviewer",
+      "sublabel": "LLM 改行程、评审、反馈重规划",
+      "tag": "有疑虑时上抛用户确认",
+      "pos": [
+        765,
+        510
+      ],
+      "size": [
+        280,
+        100
+      ]
+    },
+    {
+      "id": "meal-agent",
+      "type": "backend",
+      "label": "餐厅搜索 + 推荐 LLM",
+      "sublabel": "搜索周边餐厅、逐日选择、落库",
+      "pos": [
+        1090,
+        510
+      ],
+      "size": [
+        280,
+        100
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "request",
+      "from": "conversation",
+      "to": "runtime",
+      "label": "请求入队"
+    },
+    {
+      "id": "dispatch",
+      "from": "runtime",
+      "to": "main-agent",
+      "label": "执行 Chat Run",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "tool-access",
+      "from": "main-agent",
+      "to": "ordinary-tools",
+      "label": "按需调用",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "new-plan",
+      "from": "main-agent",
+      "to": "planning-task",
+      "label": "生成行程",
+      "fromSide": "right",
+      "toSide": "left",
+      "variant": "emphasis"
+    },
+    {
+      "id": "candidate-build",
+      "from": "planning-task",
+      "to": "candidate-agent",
+      "label": "候选池"
+    },
+    {
+      "id": "solve",
+      "from": "candidate-agent",
+      "to": "solver-gate",
+      "label": "求解"
+    },
+    {
+      "id": "revise",
+      "from": "main-agent",
+      "to": "revision-task",
+      "label": "修改行程",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "revision-input",
+      "from": "revision-task",
+      "to": "revision-agents",
+      "label": "修改要求"
+    },
+    {
+      "id": "revision-finalize",
+      "from": "revision-agents",
+      "to": "meal-agent",
+      "label": "通过 / 达上限",
+      "labelDy": 74
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "主 Agent 决策，子任务执行",
+      "items": [
+        "默认 CHAT_AGENT_MODE=react；另有 decision 兼容模式。",
+        "Planner / Revision 在当前 Chat Run 内执行，返回行程 ID。"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "新规划：语义 + 确定性计算",
+      "items": [
+        "质量失败 → Candidate Builder 修复 → 重新求解；再失败则报错。",
+        "Time Check 未接入当前新规划图；餐厅支持按需补充。"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "配套服务与记忆",
+      "items": [
+        "行程落库后异步生成游玩贴士；会话归档后提取长期记忆。",
+        "SQLite 保存会话、Brief、行程和事件；主图使用 checkpoint。"
+      ]
+    }
+  ]
+}

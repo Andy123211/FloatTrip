@@ -304,7 +304,7 @@ def make_candidate_builder_node(model_name: str | None):
         candidate_text = format_spots_for_llm(state.pois, cluster_map)
         feedback = ""
         if state.candidate_repair_feedback:
-            feedback = (
+            feedback += (
                 "\n\n上次确定性求解/质量校验失败，仅修正候选语义，不要输出路线：\n"
                 + json.dumps(state.candidate_repair_feedback, ensure_ascii=False)
             )
@@ -349,7 +349,9 @@ def make_candidate_builder_node(model_name: str | None):
 
 
 async def optimize_attractions_node(state: TravelPlanState) -> dict[str, Any]:
-    optimizer = AttractionSubsetOptimizer(state.scoring_profile_version)
+    optimizer = AttractionSubsetOptimizer(
+        state.scoring_profile_version, consistent_objective=state.planning_variant == 'C'
+    )
     weather_by_day = {
         index + 1: weather
         for index, weather in enumerate(state.weather_forecast or [])
@@ -450,6 +452,15 @@ def make_planner_node(model_name: str | None):
         cluster_map = cluster_pois_by_location(state.pois, state.days)
         cand_text = format_spots_for_llm(state.pois, cluster_map)
         feedback = ""
+        if state.parent_plan_id:
+            feedback += (
+                "\n【行程修改规则】以当前保存路线为基线，只修改用户要求的范围，保留无关日期和手动调整。"
+                "用户本轮原话：" + (state.revision_user_message or state.modification_notes or "") +
+                "\n仅下列地点有用户点名证据：" + "、".join(state.revision_explicit_places) +
+                "\n其他地点一律是系统建议，不得声称用户点名。缺少地点资料时用 modification_issue=candidate_gap，"
+                "并填写 missing_places；系统会自动补搜。仅真实的时间冲突或必须由用户决定的取舍可用 needs_user_choice，"
+                "modification_concern 必须是简短、可回答的问题，不使用候选池、checkpoint、约束机制等内部术语。"
+            )
         if state.route_modify_opinion:
             is_user_opinion = "【用户修改意见】" in state.route_modify_opinion
             opinion_label = (
@@ -467,7 +478,7 @@ def make_planner_node(model_name: str | None):
                     f"本轮你必须真正修改 days——至少换掉评审意见中明确要求替换的景点，"
                     f"或重新分配各天的景点组合。如果 days 再次与上一版完全相同，将被系统标记为规划失败。\n"
                 )
-            feedback = (
+            feedback += (
                 f"\n\n上一版路线：\n{json.dumps(state.route, ensure_ascii=False)}\n\n"
                 f"{stale_block}"
                 f"{opinion_label}：\n{state.route_modify_opinion}"
@@ -551,6 +562,8 @@ def make_planner_node(model_name: str | None):
             "history": history,
             "planner_reviewer_dialogue": state.planner_reviewer_dialogue + [planner_line],
             "modification_concern": result.modification_concern or None,
+            "modification_issue": result.modification_issue,
+            "missing_places": result.missing_places,
             "route_stale_warning": new_stale_warning,
         }
 
@@ -1122,9 +1135,28 @@ def _finalize_impl(state: TravelPlanState) -> dict[str, Any]:
         for s in state.pois
         if s.get("name") and s["name"] not in placed_names
     ][:20]
+    if state.planning_variant in {"B", "C"}:
+        final_plan["planning_notes"] += ["景点开放、预约余量及无障碍条件请在出行前核实；未核实信息不代表已确认可用。"]
+        if state.planning_variant == "C":
+            final_plan["planning_notes"].append("转场使用当前交通服务估计并留有缓冲，不代表旅行日期的实时路况。")
+            final_plan["transport_estimates"] = state.transport_evidence
+            if any(e.get("status") != "estimated" for e in state.transport_evidence):
+                final_plan["planning_notes"].append("部分转场未取得交通估计，出行时间仍待核实。")
     final_plan["candidate_spots"] = candidate_spots
+    if state.planning_variant == "C":
+        from app.planning.grounded import validation
+        summary = validation(state, final_plan)
+        if summary['status'] == 'failed':
+            raise PlanningQualityError('Final itinerary validation failed: ' + ','.join(summary['hard_violations']))
+        final_plan['validation_summary'] = summary
+        final_plan['pending_checks'] = summary['pending_checks']
+        if summary['pending_checks']:
+            final_plan['planning_notes'].append('行程仍有待核实项，请查看具体景点和转场的核实清单。')
 
     history = state.history + ["finalize：已组装最终计划"]
     # 规划过程日志随 plan 一起落库，历史详情页回看时可还原完整规划过程
     final_plan["history"] = history
+    for key in ("hotel", "notes"):
+        if key in state.revision_base_plan:
+            final_plan[key] = state.revision_base_plan[key]
     return {"final_plan": final_plan, "history": history}

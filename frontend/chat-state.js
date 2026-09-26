@@ -19,6 +19,8 @@
 
   const INTERNAL_STAGE_MAP = {
     weather_lookup: "understand",
+    revision_prepare: "understand",
+    revision_search: "discover",
     intent: "understand",
     query_rewrite: "understand",
     attraction_search: "discover",
@@ -89,6 +91,25 @@
     return visibilityState === "visible";
   }
 
+  function runElapsedSeconds(run, now = Date.now()) {
+    const parse = value => typeof value === "string" && value.trim() ? Date.parse(value) : NaN;
+    const firstValid = values => values.map(parse).find(Number.isFinite);
+    const start = firstValid([run.started_at, run.created_at, run.queued_at]);
+    const terminal = ["succeeded", "failed", "cancelled"].includes(run.status);
+    // Completed history must never use the time the page was opened as its end.
+    const end = terminal ? firstValid([run.finished_at, run.terminal_event_at])
+      : run.status === "waiting_user" ? firstValid([run.activity_at, run.updated_at]) : now;
+    if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
+    return Math.max(0, Math.floor((end - start) / 1000));
+  }
+
+  function formatRunDuration(seconds) {
+    if (!Number.isFinite(seconds)) return "";
+    if (seconds < 60) return `${seconds}秒`;
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}分${seconds % 60}秒`;
+    return `${Math.floor(seconds / 3600)}小时${Math.floor(seconds % 3600 / 60)}分`;
+  }
+
   function upsertMessage(state, message) {
     const normalized = {
       ...message,
@@ -114,13 +135,44 @@
 
   function interactionInputKind(interaction) {
     const schema = interaction?.input_schema || {};
-    const question = String(interaction?.question || "");
-    if (schema.format === "date-range" || /日期|开始.*结束|start_date|end_date/.test(question)) {
-      return "date-range";
-    }
-    if (Array.isArray(schema.enum)) return "single-choice";
-    if (schema.type === "array" && Array.isArray(schema.items?.enum)) return "multi-choice";
+    const fields = interaction?.missing_fields || [];
+    const dateFields = ["start_date", "end_date", "date_range"];
+    if (schema.format === "date-range" || (fields.length && fields.every(field => dateFields.includes(field)))) return "date-range";
+    if (schema.format === "date") return "date";
+    if (Array.isArray(schema.enum) && schema.enum.length && schema.enum.every(item => typeof item === "string")) return "single-choice";
+    if (schema.type === "array" && Array.isArray(schema.items?.enum) && schema.items.enum.length && schema.items.enum.every(item => typeof item === "string")) return "multi-choice";
     return "text";
+  }
+
+  function interactionQuestion(interaction) {
+    const question = String(interaction?.question || "请补充这次安排需要的信息");
+    // Legacy persisted interrupts may contain internal diagnostics. Keep them out
+    // of the public form; newly produced events already contain user questions.
+    return /候选池|checkpoint|未收录|扩充.*景点池/i.test(question)
+      ? "这次调整需要重新查找合适的景点。你可以补充想法，或填写“按原要求继续”。"
+      : question;
+  }
+
+  function interactionAnswer(interaction, form) {
+    const kind = interactionInputKind(interaction);
+    if (kind === "date-range" || kind === "date") {
+      const fields = interaction?.missing_fields || [];
+      const onlyStart = (kind === "date" && !fields.includes("end_date")) || (fields.length === 1 && fields[0] === "start_date");
+      const onlyEnd = fields.length === 1 && fields[0] === "end_date";
+      const valid = value => /^\d{4}-\d{2}-\d{2}$/.test(value || "") && !Number.isNaN(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value;
+      if ((!onlyEnd && !valid(form.start)) || (!onlyStart && !valid(form.end))) throw new Error("请填写有效的出行日期");
+      if (!onlyStart && !onlyEnd && form.end < form.start) throw new Error("结束日期不能早于开始日期");
+      return [!onlyEnd && `开始日期：${form.start}`, !onlyStart && `结束日期：${form.end}`].filter(Boolean).join("；");
+    }
+    if (kind === "single-choice" || kind === "multi-choice") {
+      const options = kind === "single-choice" ? interaction.input_schema.enum : interaction.input_schema.items.enum;
+      const selected = options.filter(option => (form.choices || []).includes(option));
+      if (!selected.length) throw new Error("请先选择一项");
+      return (kind === "single-choice" ? selected.slice(0, 1) : selected).join("、");
+    }
+    const answer = String(form.text || "").trim();
+    if (!answer) throw new Error("请填写补充信息");
+    return answer;
   }
 
   function constraintPresentation(fact) {
@@ -429,6 +481,8 @@
               ...stagedRun,
               ...itineraryResult,
               ...(payload.kind === "run.status" ? { status: payload.status } : {}),
+              ...(payload.kind === "run.status" && ["succeeded", "failed", "cancelled"].includes(payload.status)
+                ? { terminal_event_at: currentRun.terminal_event_at || event.created_at || null } : {}),
               ...(["run.waiting_user", "run.status"].includes(payload.kind)
                 ? { activity_at: event.created_at || new Date().toISOString() } : {}),
               pending_interaction: pendingInteraction,
@@ -454,14 +508,55 @@
         ...next,
         runs: {
           ...next.runs,
-          [runId]: { ...next.runs[runId], status: payload.status || next.runs[runId]?.status },
+          [runId]: {
+            ...next.runs[runId], status: payload.status || next.runs[runId]?.status,
+            terminal_event_at: next.runs[runId]?.terminal_event_at || event.created_at || null,
+          },
         },
       };
     }
     return next;
   }
 
+  // A mention is an explicit immutable itinerary ID, never a title lookup.
+  function itineraryReference(item) {
+    const id = item.itinerary_id || item.id;
+    const days = item.duration_days || (item.start_date && item.end_date
+      ? Math.round((Date.parse(item.end_date) - Date.parse(item.start_date)) / 86400000) + 1 : null);
+    const title = `${item.destination || "旅行方案"}${days > 0 ? ` · ${days}日` : ""}`;
+    const dates = item.start_date ? `${item.start_date}${item.end_date ? ` — ${item.end_date}` : ""}` : "日期未定";
+    const version = `V${item.version || 1}`;
+    return { mode: "reference", itineraryId: id, title, dates, version,
+      label: `${title} · ${dates} · ${version}` };
+  }
+
+  function itineraryMentionQuery(text, caret) {
+    const before = text.slice(0, caret);
+    const match = before.match(/@([^@\s]*)$/);
+    if (!match) return null;
+    const start = before.length - match[0].length;
+    // Do not interpret email addresses as trip mentions.
+    if (start > 0 && /[a-zA-Z0-9_.]/.test(before[start - 1])) return null;
+    return { start, end: caret, query: match[1] };
+  }
+
+  function hasUnresolvedItineraryMention(text) {
+    return [...text.matchAll(/@[^@\s]*/g)].some(match => itineraryMentionQuery(text, match.index + match[0].length));
+  }
+
+  function itineraryMessage(content, target, fallbackId) {
+    return {
+      content: target?.mode === "reference" ? `@${target.label}\n${content}` : content,
+      ...(target?.itineraryId || fallbackId
+        ? { related_itinerary_id: target?.itineraryId || fallbackId } : {}),
+    };
+  }
+
   global.ChatState = {
+    itineraryReference,
+    itineraryMentionQuery,
+    hasUnresolvedItineraryMention,
+    itineraryMessage,
     initialState,
     upsertMessage,
     applyEvent,
@@ -469,6 +564,8 @@
     advanceRunStage,
     productStageFor,
     interactionInputKind,
+    interactionQuestion,
+    interactionAnswer,
     constraintPresentation,
     briefViewModel,
     PRODUCT_STAGES,
@@ -476,5 +573,7 @@
     conversationAttention,
     shouldMarkConversationViewed,
     shouldPollConversations,
+    runElapsedSeconds,
+    formatRunDuration,
   };
 })(typeof window === "undefined" ? globalThis : window);

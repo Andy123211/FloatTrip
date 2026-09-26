@@ -22,6 +22,17 @@ from app.runtime.manager import RunManager
 from app.runtime.repositories import ConversationRepository
 
 
+def itinerary_completion_message(destination: str, plan: dict) -> str:
+    summary = plan.get('validation_summary') or {}
+    if summary.get('status') == 'failed':
+        return f'{destination}的行程未通过需求核验，请查看未满足的要求。'
+    if summary.get('status') == 'needs_verification':
+        return f'{destination}的行程已生成，部分开放时间或转场仍待核实，具体项目已列在方案中。'
+    if summary.get('status') == 'supported_checks_passed':
+        return f'{destination}的行程已生成，并通过当前支持的需求与排程检查。预约余量和出行当天情况仍需确认。'
+    return f'{destination}的行程已生成，可以打开查看安排和出行注意事项。'
+
+
 def snapshot_to_state(snapshot: dict[str, Any]) -> TravelPlanState:
     allowed = set(TravelPlanState.model_fields)
     values = {key: value for key, value in snapshot.items() if key in allowed}
@@ -51,27 +62,33 @@ async def planning_run_to_state(run: dict[str, Any]) -> TravelPlanState:
     return snapshot_to_state(snapshot)
 
 
-async def revision_snapshot_to_state(run: dict[str, Any]) -> TravelPlanState:
+async def revision_snapshot_to_state(run: dict[str, Any], db_path=None) -> TravelPlanState:
     snapshot = run["request_snapshot"]
     parent_id = snapshot.get("related_itinerary_id") or snapshot.get("parent_plan_id")
 
     def load():
-        with get_conn() as conn:
+        with get_conn(db_path) as conn:
             return load_itinerary(parent_id, conn) if parent_id else None
 
     base = await asyncio.to_thread(load)
-    if not base or not base.get("planner_state"):
-        raise ValueError("基础行程缺少可修改的 planner checkpoint")
-    checkpoint = base["planner_state"]
+    if not base:
+        raise ValueError("基础行程不存在")
+    checkpoint = base.get("planner_state") or {}
+    from app.planning.revision import current_revision_base
+    current_route, current_pois, removed = current_revision_base(base, snapshot.get("revision_user_message") or snapshot.get("modification_notes", ""))
+    plan = base["plan"]
     return TravelPlanState(
         query=checkpoint.get("query", "修改行程"),
-        route=checkpoint.get("route", []),
-        pois=checkpoint.get("pois", []),
+        route=current_route,
+        pois=current_pois,
+        revision_excluded_names=removed,
+        revision_base_plan=plan,
+        revision_user_message=snapshot.get("revision_user_message") or snapshot.get("modification_notes", ""),
         planner_reviewer_dialogue=checkpoint.get("planner_reviewer_dialogue", []),
-        destination=checkpoint.get("destination"),
-        travel_start_date=checkpoint.get("travel_start_date"),
-        travel_end_date=checkpoint.get("travel_end_date"),
-        days=checkpoint.get("days", 0),
+        destination=plan.get("destination") or checkpoint.get("destination"),
+        travel_start_date=plan.get("start_date") or checkpoint.get("travel_start_date"),
+        travel_end_date=plan.get("end_date") or checkpoint.get("travel_end_date"),
+        days=len(plan.get("days") or []) or checkpoint.get("days", 0),
         attraction_preference=checkpoint.get("attraction_preference"),
         food_preference=checkpoint.get("food_preference"),
         habit_preference=checkpoint.get("habit_preference"),
@@ -137,7 +154,7 @@ class PlanningFinalizer:
             message = await asyncio.to_thread(
                 ConversationRepository(self.manager.db_path).add_message,
                 run["user_id"], run["conversation_id"], "assistant",
-                f"{destination}的完整行程已经准备好了。路线、开放时间、餐饮和游玩提示都已整理，可以打开查看完整方案。",
+                itinerary_completion_message(destination, state.final_plan),
                 related_run_id=run["id"], related_itinerary_id=itinerary_id,
             )
             await self.manager.publish(
@@ -170,14 +187,13 @@ class PlanningFinalizer:
             )
         return {"result_itinerary_id": itinerary_id}
 
-    @staticmethod
-    def _persist(run: dict[str, Any], state: TravelPlanState) -> str:
+    def _persist(self, run: dict[str, Any], state: TravelPlanState) -> str:
         checkpoint = {
             key: value
             for key, value in state.model_dump(mode="json").items()
             if key != "final_plan"
         }
-        with get_conn() as conn:
+        with get_conn(self.manager.db_path) as conn:
             itinerary_id = save_itinerary(
                 run["user_id"],
                 state.final_plan,

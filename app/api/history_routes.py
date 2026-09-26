@@ -13,6 +13,7 @@ from fastapi.responses import StreamingResponse
 from app.core.auth import decode_token
 from app.core.database import get_conn
 from app.core.memory import list_itineraries, list_itineraries_page, load_itinerary
+from app.planning.day_themes import project_legacy_day_themes
 from app.planning.restaurant_enrichment import route_fingerprint
 from app.planning.tip_enrichment import load_tip_enrichment
 from app.runtime.container import manager, scheduler
@@ -58,9 +59,10 @@ def _tip_run_status(plan_id: str, fingerprint: str, conn) -> str | None:
 
 
 def _project_tip_enrichment(data: dict, user_id: str, conn) -> dict:
-    """Overlay route-versioned tips without modifying persisted core route JSON."""
+    """Overlay themes and route-versioned tips without changing persisted JSON."""
     projected = copy.deepcopy(data)
     plan = projected["plan"]
+    project_legacy_day_themes(plan)
     fingerprint = route_fingerprint(plan)
     enrichment = load_tip_enrichment(projected["id"], user_id, fingerprint, conn)
     tips = (enrichment or {}).get("tips") or {}

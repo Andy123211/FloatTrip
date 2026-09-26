@@ -1,5 +1,8 @@
 # Planner⇄Reviewer 评估框架使用手册
 
+> 此文档针对旧 Planner／Reviewer 子流程，不能代表当前新行程的确定性优化主链路质量。
+> 上海、南京的真实搜索、个性化及热门景点独立评测见 [travel_benchmark/README.md](travel_benchmark/README.md)。
+
 这套框架用来评估 **planner** 和 **reviewer** 两个 Agent 的质量：
 在各种目的地、出行时间、天气、偏好下，能否在 3 轮以内产出合格规划？
 

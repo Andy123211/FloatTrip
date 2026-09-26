@@ -57,6 +57,10 @@ class TravelRoute(BaseModel):
         description="逐天路线，严格落实 reasoning 中的结论——说换就必须换，说保留就保留"
     )
     notes: str = Field(default="", description="本版总结，一句话说明本轮主要改动，供历史日志展示")
+    modification_issue: Literal["none", "candidate_gap", "needs_user_choice", "execution_failed"] = Field(
+        default="none", description="缺少地点资料用 candidate_gap，真实时间/偏好取舍才用 needs_user_choice；不得让用户解决搜索限制。"
+    )
+    missing_places: list[str] = Field(default_factory=list, max_length=6, description="需要搜索验证的地点，不代表用户点名")
     modification_concern: str = Field(
         default="",
         description="如果用户修改意见会导致路线质量严重下降（如同天景点地理跨度剧增、"
@@ -162,7 +166,7 @@ class CandidateAttraction(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     poi_name: str = Field(min_length=1)
-    duration_min: int = Field(default=120, ge=30, le=360)
+    duration_min: int = Field(default=120, ge=30, le=720)
     preference_match: float = Field(default=0.5, ge=0, le=1)
     representativeness: float = Field(default=0.5, ge=0, le=1)
     preferred_period: PreferredPeriod = "any"
@@ -211,6 +215,13 @@ class OptimizerCandidate(CandidateAttraction):
     must_be_first: bool = False
     must_be_last: bool = False
     before_poi_names: list[str] = Field(default_factory=list)
+    earliest_start_min: int | None = Field(default=None, ge=0, le=1439)
+    transfer_minutes_to: dict[str, int] = Field(default_factory=dict)
+    allowed_transfer_names: list[str] | None = None
+    entity_id: str | None = None
+    entity_aliases: list[str] = Field(default_factory=list)
+    parent_id: str | None = None
+    opening_calendar: dict[str, Any] | None = None
 
 
 class SolverDiagnostics(BaseModel):
@@ -280,6 +291,14 @@ class TravelPlanState(BaseModel):
     min_rating: float = 4.5
     max_spots: int = 30
     max_review_rounds: int = 3
+    planning_variant: str = "A"
+    hard_requirements: dict[str, Any] = Field(default_factory=dict)
+    planning_draft: dict[str, Any] = Field(default_factory=dict)
+    entity_evidence: list[dict[str, Any]] = Field(default_factory=list)
+    transport_evidence: list[dict[str, Any]] = Field(default_factory=list)
+    validation_summary: dict[str, Any] = Field(default_factory=dict)
+    transport_repair_round: int = 0
+    transport_repair_trace: list[dict[str, Any]] = Field(default_factory=list)
     model_name: Optional[str] = None
 
     # 高德景点搜索
@@ -338,6 +357,17 @@ class TravelPlanState(BaseModel):
 
     # 用户记忆注入（由 API 层填充）
     profile_hint: Optional[str] = None
+
+    revision_user_message: str = ""
+    revision_search_queries: list[str] = Field(default_factory=list)
+    revision_searched_queries: list[str] = Field(default_factory=list)
+    revision_search_round: int = 0
+    revision_needs_search: bool = False
+    revision_explicit_places: list[str] = Field(default_factory=list)
+    revision_excluded_names: list[str] = Field(default_factory=list)
+    revision_base_plan: dict[str, Any] = Field(default_factory=dict)
+    modification_issue: Literal["none", "candidate_gap", "needs_user_choice", "execution_failed"] = "none"
+    missing_places: list[str] = Field(default_factory=list)
 
     # 修改规划相关（由 API 层填充）
     modification_notes: Optional[str] = None

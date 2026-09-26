@@ -214,7 +214,7 @@ class RuntimeEndToEndTests(unittest.IsolatedAsyncioTestCase):
 
         # Finalizer/worker use the application connection helper; bind it to
         # this isolated e2e database rather than the developer's local DB.
-        with patch("app.planning.runtime_worker.get_conn", lambda: get_conn(self.db_path)), \
+        with patch("app.planning.runtime_worker.get_conn", lambda _path=None: get_conn(self.db_path)), \
              patch("app.planning.runtime_worker.launch_shadow_profiles") as shadow, \
              patch("app.planning.runtime_worker.generate_tip_enrichment", generate_tips):
             await self.scheduler.start()

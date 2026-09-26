@@ -9,18 +9,18 @@ def test_frontend_html_disables_cache_and_versions_all_local_assets():
     assert response.status_code == 200
     assert response.headers["cache-control"] == "no-store, max-age=0"
     html = response.text
-    assert '<link rel="icon" type="image/png" href="/favicon.png?v=20260830-duck-guide" />' in html
-    assert '<link rel="apple-touch-icon" href="/favicon.png?v=20260830-duck-guide" />' in html
+    assert '<link rel="icon" type="image/svg+xml" href="/assets/brand/horizon.svg?v=20260919-horizon" />' in html
+    assert '<link rel="apple-touch-icon" href="/favicon.png?v=20260919-horizon" />' in html
     for asset in (
         "style.css", "api.js", "chat-state.js", "navigation-state.js",
-        "tweaks-panel.jsx", "mascot.jsx", "components.jsx", "edit.jsx",
+        "brand.jsx", "components.jsx", "edit.jsx",
         "pages.jsx", "main.jsx",
     ):
-        assert f'/{asset}?v=20260905-shared-navigation' in html
+        assert f'/{asset}?v=20260919-horizon' in html
 
 
-def test_frontend_serves_the_duck_guide_icon():
-    response = TestClient(app).get("/favicon.png?v=20260830-duck-guide")
+def test_frontend_serves_the_touch_icon():
+    response = TestClient(app).get("/favicon.png?v=20260919-horizon")
 
     assert response.status_code == 200
     assert response.headers["content-type"] == "image/png"
@@ -37,7 +37,7 @@ def test_trip_redesign_serves_its_local_nanjing_cover():
 
 
 def test_frontend_scripts_are_revalidated():
-    response = TestClient(app).get("/pages.jsx?v=20260830-duck-brand")
+    response = TestClient(app).get("/pages.jsx?v=20260919-horizon")
 
     assert response.status_code == 200
     assert response.headers["cache-control"] == "no-cache, must-revalidate"
@@ -48,7 +48,7 @@ def test_frontend_scripts_are_revalidated():
 
 
 def test_protected_api_401_expires_the_stale_browser_session():
-    api = TestClient(app).get("/api.js?v=20260830-duck-brand").text
+    api = TestClient(app).get("/api.js?v=20260919-horizon").text
 
     assert "if (r.status === 401) clearAuth();" in api
     assert 'error.code = r.status === 401 ? "auth_expired"' in api
@@ -61,14 +61,16 @@ def test_conversation_ui_contains_persisted_accessible_itinerary_cards():
     assert "function MessageArtifacts" in response.text
     assert "saved-itinerary-card" in response.text
     assert "onOpen?.(card.itinerary_id)" in response.text
-    assert "查看完整方案" in response.text
+    assert "聊聊这份行程" in response.text
+    assert "onReference(card)" in response.text
+    assert "ItineraryMentionInput" in response.text
 
 
 def test_chat_page_integrates_paginated_history_plans_and_legacy_route_redirect():
     client = TestClient(app)
-    pages = client.get("/pages.jsx?v=20260830-duck-brand").text
-    main = client.get("/main.jsx?v=20260830-duck-brand").text
-    api = client.get("/api.js?v=20260830-duck-brand").text
+    pages = client.get("/pages.jsx?v=20260919-horizon").text
+    main = client.get("/main.jsx?v=20260919-horizon").text
+    api = client.get("/api.js?v=20260919-horizon").text
 
     assert "function JourneyPlans" in pages
     assert "getHistoryPage(6, cursor)" in pages
@@ -87,7 +89,7 @@ def test_itinerary_revision_uses_chat_once_and_keeps_manual_retry_state():
     api = TestClient(app).get("/api.js?v=20260807-conversation-attention").text
 
     assert "consumedRevisionNoncesRef.current.has(nonce)" in pages
-    assert "related_itinerary_id: target.itineraryId" in pages
+    assert "ChatState.itineraryMessage(content, target, relatedPlanId)" in pages
     assert 'setError(e.message || "修改请求发送失败，请重试")' in pages
     assert "setDraft(content)" in pages
     assert 'composerTarget?.mode === "revision" && (!conversationId || conversationArchived)' in pages
@@ -106,7 +108,7 @@ def test_itinerary_detail_subscribes_to_async_tip_updates_without_remounting():
     assert "itinerary.tip_status_changed" in pages
     assert "setPlan(previous => ({ ...adapted" in pages
     assert "重新生成景点贴士" in pages
-    assert "途途正在整理贴士…" in components
+    assert "途见正在整理贴士…" in components
     assert "路线已更新，贴士尚未更新" in components
     assert "async function streamItineraryTips" in api
     assert "retryItineraryTips" in api
@@ -114,17 +116,17 @@ def test_itinerary_detail_subscribes_to_async_tip_updates_without_remounting():
 
 def test_itinerary_detail_uses_the_redesign_workspace_with_live_core_features():
     client = TestClient(app)
-    pages = client.get("/pages.jsx?v=20260830-duck-brand").text
-    redesign = client.get("/detail-redesign.jsx?v=20260905-shared-navigation").text
-    main = client.get("/main.jsx?v=20260830-duck-brand").text
-    components = client.get("/components.jsx?v=20260830-duck-brand").text
-    api = client.get("/api.js?v=20260830-duck-brand").text
-    css = client.get("/style.css?v=20260830-duck-brand").text
+    pages = client.get("/pages.jsx?v=20260919-horizon").text
+    redesign = client.get("/detail-redesign.jsx?v=20260919-horizon").text
+    main = client.get("/main.jsx?v=20260919-horizon").text
+    components = client.get("/components.jsx?v=20260919-horizon").text
+    api = client.get("/api.js?v=20260919-horizon").text
+    css = client.get("/style.css?v=20260919-horizon").text
     html = client.get("/").text
 
     assert '<header className="topbar">' in main
     assert "function LegacyTripDetailPage" in pages
-    assert '<script type="text/babel" src="/detail-redesign.jsx?v=20260905-shared-navigation"></script>' in html
+    assert '<script type="text/babel" src="/detail-redesign.jsx?v=20260919-horizon"></script>' in html
     assert "function TripDetailPage" in redesign
     assert 'className="rd-top-nav"' not in redesign
     assert 'className="rd-chat-panel"' in redesign
@@ -135,10 +137,10 @@ def test_itinerary_detail_uses_the_redesign_workspace_with_live_core_features():
     assert "RedesignMapFallback" not in redesign
     assert '<MapPanel day={day} dayIdx={dayIdx} workbenchControls' in redesign
     assert '<ChatPage embedded {...props}' in redesign
-    assert 'related_itinerary_id: relatedPlanId' in pages
+    assert 'ChatState.itineraryMessage(content, target, relatedPlanId)' in pages
     assert 'listConversations(relatedPlanId)' in pages
     assert 'streamRuntimeRun(run.id, cursor' in pages
-    assert 'resumeRuntimeRun(run.id, interaction.interaction_id, content)' in pages
+    assert 'resumeRuntimeRun(run.id, interactionId, content)' in pages
     assert 'retryRuntimeRun(run.id)' in pages
     assert 'cancelRuntimeRun(run.id)' in pages
     assert '<ProfilePage currentUsername={currentUsername}' in redesign
@@ -151,50 +153,37 @@ def test_itinerary_detail_uses_the_redesign_workspace_with_live_core_features():
     assert '.rd-workspace{' in css
     assert '.rd-detail-body{' in css
     assert '.rd-map-column>.map-frame' in css
-    assert '.rd-map-fallback{' in css
-    assert '.rd-map-zoom{' in css
     assert '@media(prefers-reduced-motion:reduce)' in css
     assert "optimizeDay(" in redesign
     assert "saveTimeline(" in redesign
     assert "savePlanMetadata(" in redesign
 
 
-def test_duck_brand_tokens_themes_fonts_and_internal_icons_are_locked():
+def test_horizon_identity_and_single_theme_are_delivered():
     client = TestClient(app)
-    css = client.get("/style.css?v=20260830-duck-brand").text
     html = client.get("/").text
-    main = client.get("/main.jsx?v=20260830-duck-brand").text
-    components = client.get("/components.jsx?v=20260830-duck-brand").text
-    mascot = client.get("/mascot.jsx?v=20260830-duck-brand").text
-
-    for color in ("#FFE39A", "#FFD166", "#F6F0E6", "#E7F0C5", "#8FB26E", "#6B4E3D"):
-        assert color in css
-    for theme_id in ("morning", "celadon", "night", "sky"):
-        assert f'[data-theme="{theme_id}"]' in css
-        assert f'value: "{theme_id}"' in main
-    for label in ("晨光 · 蜂蜜黄", "青野 · 嫩芽绿", "夜旅 · 可可棕", "晴日 · 奶油白"):
-        assert label in main
-
-    assert "family=Nunito" in html
-    assert '"Yuanti SC", "Noto Sans SC", "PingFang SC"' in css
-    assert "function UiIcon({ name, size = 18, strokeWidth = 2, label = null" in components
-    assert "function WeatherGlyph" in components
-    assert '<img src="/favicon.png?v=20260830-duck-guide" alt="" />' in main
-
-    assert 'function Mascot({ size = 140, pose = "idle", flip = false, style = {} })' in mascot
-    for pose in ("idle", "wave", "walk", "point", "cheer", "think"):
-        assert pose in mascot
-
-    for retired_color in ("#b5491f", "#3f5d3a", "#fdfaf2", "#9c352f", "#34c759"):
-        assert retired_color not in css.lower()
+    main = client.get("/main.jsx").text
+    pages = client.get("/pages.jsx").text
+    svg = client.get("/assets/brand/horizon.svg")
+    assert svg.status_code == 200
+    assert "image/svg+xml" in svg.headers["content-type"]
+    assert '<svg' in svg.text
+    assert 'data-theme="horizon"' in html
+    assert 'theme-switcher' not in main
+    assert '/mascot.jsx' not in html
+    assert '途途' not in pages
+    assert '让下一段旅程，' in pages
+    assert '1分钟创建' not in pages
+    assert 'fonts.googleapis.com' not in html
+    assert 'family=Nunito' not in html
 
 
 def test_primary_user_controls_use_line_icons_instead_of_emoji():
     client = TestClient(app)
-    main = client.get("/main.jsx?v=20260830-duck-brand").text
-    pages = client.get("/pages.jsx?v=20260830-duck-brand").text
-    components = client.get("/components.jsx?v=20260830-duck-brand").text
-    edit = client.get("/edit.jsx?v=20260830-duck-brand").text
+    main = client.get("/main.jsx?v=20260919-horizon").text
+    pages = client.get("/pages.jsx?v=20260919-horizon").text
+    components = client.get("/components.jsx?v=20260919-horizon").text
+    edit = client.get("/edit.jsx?v=20260919-horizon").text
 
     assert '<UiIcon name="menu"' in pages
     assert '<UiIcon name="compress"' in pages
@@ -202,6 +191,5 @@ def test_primary_user_controls_use_line_icons_instead_of_emoji():
     assert '<UiIcon name="undo"' in edit
     assert '<UiIcon name="redo"' in edit
     assert '<UiIcon name="location"' in components
-    assert '<UiIcon name={THEME_ICONS[value]}' in main
     for emoji in ("💡", "🍽", "⭐", "📍", "💰", "📞", "✕", "✅", "❌", "🧪", "🍜", "☰"):
         assert emoji not in main + pages + components + edit

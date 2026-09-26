@@ -2,6 +2,8 @@
 
 /* ── Auth 模态框 ──────────────────────────────── */
 function AuthModal({ onSuccess, onClose, reason }) {
+  const dialogRef = React.useRef(null);
+  useDialogFocus(dialogRef, onClose, "#auth-username");
   const [tab, setTab] = React.useState("login");
   const [username, setUsername] = React.useState("");
   const [password, setPassword] = React.useState("");
@@ -9,6 +11,7 @@ function AuthModal({ onSuccess, onClose, reason }) {
   const [loading, setLoading] = React.useState(false);
 
   const submit = async () => {
+    if (loading) return;
     if (!username.trim() || !password.trim()) { setErr("请填写用户名和密码"); return; }
     setLoading(true); setErr("");
     try {
@@ -35,7 +38,8 @@ function AuthModal({ onSuccess, onClose, reason }) {
 
   return (
     <div className="modal-backdrop" onClick={(e) => e.target === e.currentTarget && onClose && onClose()}>
-      <div className="modal-card">
+      <div className="modal-card" ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label="登录或注册途见">
+        <BrandMark size={46} decorative />
         <button className="modal-close" onClick={onClose} aria-label="关闭登录窗口"><UiIcon name="close" size={18} /></button>
         <div className="modal-title">途见 · AI 旅行规划</div>
         {reason && <div className="modal-sub">{reason}</div>}
@@ -44,14 +48,14 @@ function AuthModal({ onSuccess, onClose, reason }) {
           <button className={`auth-tab ${tab === "register" ? "active" : ""}`} onClick={() => { setTab("register"); setErr(""); }}>注册</button>
         </div>
         <div className="form-field">
-          <label className="form-label">用户名</label>
-          <input className="form-input" value={username} onChange={e => setUsername(e.target.value)}
-            placeholder="输入用户名" autoFocus
+          <label className="form-label" htmlFor="auth-username">用户名</label>
+          <input id="auth-username" autoComplete="username" className="form-input" value={username} onChange={e => setUsername(e.target.value)}
+            placeholder="输入用户名"
             onKeyDown={e => e.key === "Enter" && submit()} />
         </div>
         <div className="form-field">
-          <label className="form-label">密码</label>
-          <input className="form-input" type="password" value={password} onChange={e => setPassword(e.target.value)}
+          <label className="form-label" htmlFor="auth-password">密码</label>
+          <input id="auth-password" autoComplete={tab === "login" ? "current-password" : "new-password"} className="form-input" type="password" value={password} onChange={e => setPassword(e.target.value)}
             placeholder="输入密码"
             onKeyDown={e => e.key === "Enter" && submit()} />
         </div>
@@ -62,6 +66,158 @@ function AuthModal({ onSuccess, onClose, reason }) {
       </div>
     </div>
   );
+}
+
+/* Native textarea + ID-backed itinerary picker; no rich-text dependency. */
+function ItineraryMentionInput({ composerRef, draft, setDraft, onSelect, onSend, disabled, allowMentions, ariaLabel, placeholder }) {
+  const [mention, setMention] = React.useState(null);
+  const [items, setItems] = React.useState([]);
+  const [cursor, setCursor] = React.useState(null);
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState("");
+  const [index, setIndex] = React.useState(0);
+  const requestRef = React.useRef(0);
+  const busyRef = React.useRef(false);
+  const rootRef = React.useRef(null);
+  const listId = React.useId();
+  const open = allowMentions && !!mention;
+  const query = (mention?.query || "").toLocaleLowerCase();
+  const matches = items.filter(item => {
+    const ref = ChatState.itineraryReference(item);
+    return `${ref.label} ${item.created_at || ""}`.toLocaleLowerCase().includes(query);
+  });
+  const load = async (nextCursor = null) => {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    const request = ++requestRef.current;
+    setBusy(true); setError("");
+    try {
+      const page = await getHistoryPage(20, nextCursor);
+      if (request !== requestRef.current) return;
+      setItems(previous => nextCursor ? [...previous, ...page.items.filter(item => !previous.some(row => row.id === item.id))] : page.items);
+      setCursor(page.next_cursor);
+    } catch (e) {
+      if (request === requestRef.current) setError(e.message || "暂时无法读取行程");
+    } finally {
+      if (request === requestRef.current) { setBusy(false); busyRef.current = false; }
+    }
+  };
+  React.useEffect(() => {
+    if (open) { setItems([]); setCursor(null); load(); }
+    return () => { requestRef.current++; busyRef.current = false; };
+  }, [open]);
+  React.useEffect(() => { setIndex(0); }, [query]);
+  React.useEffect(() => {
+    if (open) document.getElementById(`${listId}-${index}`)?.scrollIntoView({ block: "nearest" });
+  }, [index, open]);
+  React.useEffect(() => { if (!allowMentions) setMention(null); }, [allowMentions]);
+  const updateMention = node => setMention(allowMentions ? ChatState.itineraryMentionQuery(node.value, node.selectionStart) : null);
+  const select = item => {
+    const next = draft.slice(0, mention.start) + draft.slice(mention.end);
+    setDraft(next); setMention(null); onSelect(item);
+    requestAnimationFrame(() => { composerRef.current?.focus(); composerRef.current?.setSelectionRange(mention.start, mention.start); });
+  };
+  return <div className="itinerary-mention-input" ref={rootRef} onBlur={event => {
+    if (!event.currentTarget.contains(event.relatedTarget)) setMention(null);
+  }}>
+    {open && <div className="itinerary-mention-popover">
+      <div className="itinerary-mention-heading"><strong>选择一份行程</strong><span>引用后，围绕这份方案聊</span></div>
+      <div className="itinerary-mention-list" id={listId} role="listbox" aria-label="可引用的行程" aria-busy={busy}>
+        {matches.map((item, itemIndex) => {
+          const ref = ChatState.itineraryReference(item);
+          return <button type="button" role="option" aria-selected={itemIndex === index} id={`${listId}-${itemIndex}`} key={item.id}
+            onMouseDown={event => event.preventDefault()} onClick={() => select(item)}>
+            <span className="itinerary-mention-at" aria-hidden="true">@</span>
+            <span><strong>{ref.title}<b>{ref.version}</b></strong><small>{ref.dates}</small>{item.created_at && <small>保存于 {item.created_at.slice(0, 19).replace("T", " ")}</small>}</span>
+            {itemIndex === index && <UiIcon name="arrow-right" size={15} />}
+          </button>;
+        })}
+      </div>
+      <div className="itinerary-mention-feedback" role="status">
+        {busy ? "正在读取行程…" : error ? <>{error}<button type="button" onClick={() => load(cursor)}>重试</button></> : <>
+          {!matches.length && <span>{query ? "已加载的行程中没有匹配结果" : "还没有保存的行程"}</span>}
+          {cursor && <button type="button" onClick={() => load(cursor)}>查找更早的行程</button>}
+        </>}
+      </div>
+    </div>}
+    <textarea ref={composerRef} value={draft} disabled={disabled} aria-label={ariaLabel} placeholder={placeholder}
+      role="combobox" aria-autocomplete="list" aria-expanded={open} aria-controls={open ? listId : undefined}
+      aria-activedescendant={open && matches[index] ? `${listId}-${index}` : undefined}
+      onChange={event => { setDraft(event.target.value); updateMention(event.target); }}
+      onClick={event => updateMention(event.target)}
+      onKeyUp={event => { if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) updateMention(event.target); }}
+      onKeyDown={event => {
+        if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+        if (open && event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setMention(null); return; }
+        if (open && ["ArrowUp", "ArrowDown"].includes(event.key)) {
+          event.preventDefault();
+          if (matches.length) setIndex(previous => (previous + (event.key === "ArrowDown" ? 1 : -1) + matches.length) % matches.length);
+          return;
+        }
+        if (open && event.key === "Enter" && !event.shiftKey) {
+          event.preventDefault(); if (matches[index]) select(matches[index]); return;
+        }
+        if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); onSend(); }
+      }} />
+  </div>;
+}
+
+function ClarificationCard({ run, onSubmit, onCancel }) {
+  const interaction = run.pending_interaction;
+  const [form, setForm] = React.useState({ text: "", start: "", end: "", choices: [] });
+  const [collapsed, setCollapsed] = React.useState(false);
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState("");
+  const busyRef = React.useRef(false);
+  const cardRef = React.useRef(null);
+  const titleId = React.useId();
+  const kind = ChatState.interactionInputKind(interaction);
+  const fields = interaction?.missing_fields || [];
+  const onlyStart = (kind === "date" && !fields.includes("end_date")) || (fields.length === 1 && fields[0] === "start_date");
+  const onlyEnd = fields.length === 1 && fields[0] === "end_date";
+  React.useEffect(() => {
+    if (!collapsed) (cardRef.current?.querySelector("input, textarea") || cardRef.current?.querySelector(".clarification-title"))?.focus({ preventScroll: true });
+  }, [collapsed]);
+  React.useEffect(() => {
+    const viewport = window.visualViewport;
+    const fit = () => cardRef.current?.style.setProperty("--clarification-max-height", `${Math.max(140, (viewport?.height || window.innerHeight) * .55)}px`);
+    fit(); viewport?.addEventListener("resize", fit);
+    return () => viewport?.removeEventListener("resize", fit);
+  }, []);
+  const act = async cancel => {
+    if (busyRef.current) return;
+    let value;
+    try { if (!cancel) value = ChatState.interactionAnswer(interaction, form); }
+    catch (err) { setError(err.message); return; }
+    busyRef.current = true; setBusy(true); setError("");
+    try { if (cancel) await onCancel(); else await onSubmit(value, interaction.interaction_id); }
+    catch (err) { setError(err.message || "提交失败，请重试"); }
+    finally { busyRef.current = false; setBusy(false); }
+  };
+  return <section ref={cardRef} className={`clarification-card ${collapsed ? "is-collapsed" : ""}`} aria-labelledby={titleId}
+    onKeyDown={event => { if (event.key === "Escape" && !event.nativeEvent.isComposing) { event.preventDefault(); event.stopPropagation(); setCollapsed(true); requestAnimationFrame(() => cardRef.current?.querySelector("button")?.focus()); } }}>
+    <header><div><span className="clarification-dot" aria-hidden="true" /><strong id={titleId} className="clarification-title" tabIndex={-1}>{collapsed ? "待补充 · 规划已暂停" : "补充一下，继续安排"}</strong></div>
+      <button type="button" onClick={() => setCollapsed(value => !value)} aria-label={collapsed ? "展开补充信息" : "收起补充信息"} aria-expanded={!collapsed}><UiIcon name={collapsed ? "chevron-up" : "chevron-down"} size={17} /></button>
+    </header>
+    <div hidden={collapsed} className="clarification-expanded">
+      <div className="clarification-body">
+        <p>{ChatState.interactionQuestion(interaction)}</p>
+        <fieldset disabled={busy}>
+          {(kind === "date-range" || kind === "date") ? <div className="clarification-dates">
+            {!onlyEnd && <label>开始日期<input type="date" value={form.start} onChange={event => setForm({ ...form, start: event.target.value })} /></label>}
+            {!onlyStart && <label>结束日期<input type="date" min={form.start || undefined} value={form.end} onChange={event => setForm({ ...form, end: event.target.value })} /></label>}
+          </div> : (kind === "single-choice" || kind === "multi-choice") ? <div className="clarification-choices">
+            {(kind === "single-choice" ? interaction.input_schema.enum : interaction.input_schema.items.enum).map(option => <label key={option}>
+              <input type={kind === "single-choice" ? "radio" : "checkbox"} name={titleId} checked={form.choices.includes(option)} onChange={() => setForm({ ...form, choices: kind === "single-choice" ? [option] : form.choices.includes(option) ? form.choices.filter(item => item !== option) : [...form.choices, option] })} /><span>{option}</span>
+            </label>)}
+          </div> : <textarea aria-label="填写补充信息" placeholder="写下你的选择或补充要求…" value={form.text} onChange={event => setForm({ ...form, text: event.target.value })}
+            onKeyDown={event => { if (event.key === "Enter" && (event.ctrlKey || event.metaKey) && !event.nativeEvent.isComposing) { event.preventDefault(); act(false); } }} />}
+        </fieldset>
+      </div>
+      {error && <p className="clarification-error" role="alert">{error}</p>}
+      <footer><button type="button" disabled={busy} onClick={() => act(true)}>停止本次任务</button><button type="button" className="primary" disabled={busy || !interaction?.interaction_id} onClick={() => act(false)}>{busy ? "正在处理…" : "提交并继续"}<UiIcon name="arrow-up" size={15} /></button></footer>
+    </div>
+  </section>;
 }
 
 /* ── 持久化旅行对话 ─────────────────────────────── */
@@ -98,7 +254,6 @@ function ChatPage({
   const composerRef = React.useRef(null);
   const firstJourneyRef = React.useRef(null);
   const errorRef = React.useRef(null);
-  const waitingRunsRef = React.useRef(new Set());
   const consumedRevisionNoncesRef = React.useRef(new Set());
   const activityItems = ChatState.activityItems(state);
   const runList = Object.values(state.runs).sort(
@@ -175,9 +330,13 @@ function ChatPage({
         const completed = (
           event.payload?.kind === "run.status" && event.payload.status === "succeeded"
         ) || (event.kind === "end" && event.payload?.status === "succeeded");
-        if (completed && activeIdRef.current === run.conversation_id) {
+        const terminal = ["succeeded", "failed", "cancelled"].includes(event.payload?.status)
+          && (event.payload?.kind === "run.status" || event.kind === "end");
+        if (terminal && activeIdRef.current === run.conversation_id) {
           getRun(run.id).then(updated => {
-            if (activeIdRef.current === run.conversation_id && updated.result_itinerary_id) resultCallbackRef.current?.(updated.result_itinerary_id);
+            if (activeIdRef.current !== run.conversation_id) return;
+            setState(previous => ({ ...previous, runs: { ...previous.runs, [run.id]: { ...previous.runs[run.id], ...updated } } }));
+            if (completed && updated.result_itinerary_id) resultCallbackRef.current?.(updated.result_itinerary_id);
           }).catch(() => {});
         }
         if (run.kind === "chat" && completed && run.journey_step_index !== undefined) {
@@ -347,10 +506,8 @@ function ChatPage({
       activeIdRef.current = conversationId;
       setActiveId(conversationId);
     }
-    const context = target?.mode === "revision"
-      ? { related_itinerary_id: target.itineraryId }
-      : relatedPlanId ? { related_itinerary_id: relatedPlanId } : {};
-    const result = await submitConversationMessage(conversationId, content, context);
+    const { content: messageContent, ...context } = ChatState.itineraryMessage(content, target, relatedPlanId);
+    const result = await submitConversationMessage(conversationId, messageContent, context);
     setConversations(previous => previous.map(item => (
       item.id === conversationId && (!item.title || item.title === "新的旅行对话")
         ? { ...item, title: content.slice(0, 24), updated_at: new Date().toISOString() }
@@ -376,35 +533,29 @@ function ChatPage({
     }).finally(() => { sendingRef.current = false; });
   }, [loading, currentUsername]);
 
+  const submitClarification = async (content, interactionId) => {
+    const run = blockingRun;
+    if (sendingRef.current || !run || run.status !== "waiting_user" || run.pending_interaction?.interaction_id !== interactionId) throw new Error("这个问题已更新，请恢复对话后查看最新问题");
+    sendingRef.current = true;
+    try {
+      const resumed = await resumeRuntimeRun(run.id, interactionId, content);
+      if (activeIdRef.current !== run.conversation_id) return;
+      setState(previous => {
+        const next = resumed.accepted_message ? ChatState.upsertMessage(previous, resumed.accepted_message) : previous;
+        return { ...next, runs: { ...next.runs, [run.id]: { ...next.runs[run.id], ...resumed,
+          pending_interaction: resumed.status === "waiting_user" ? next.runs[run.id]?.pending_interaction : null } } };
+      });
+      abortsRef.current[run.id]?.(); delete abortsRef.current[run.id];
+      subscribeRun({ ...run, ...resumed });
+    } finally { sendingRef.current = false; }
+  };
+
   const send = async () => {
     if (revisionSubmitting || sendingRef.current || loading || inputDisabled) return;
     const content = draft.trim();
     if (!content) return;
-    if (blockingRun?.status === "waiting_user") {
-      const run = blockingRun;
-      const interaction = run.pending_interaction;
-      if (!interaction?.interaction_id) return;
-      sendingRef.current = true;
-      setDraft("");
-      setError("");
-      try {
-        const resumed = await resumeRuntimeRun(run.id, interaction.interaction_id, content);
-        setState(previous => {
-          let next = previous;
-          if (resumed.accepted_message) next = ChatState.upsertMessage(next, resumed.accepted_message);
-          return {
-            ...next,
-            runs: { ...next.runs, [run.id]: { ...next.runs[run.id], ...resumed, pending_interaction: null } },
-          };
-        });
-        setComposerTarget(null);
-        abortsRef.current[run.id]?.();
-        delete abortsRef.current[run.id];
-        subscribeRun({ ...run, ...resumed });
-      } catch (e) {
-        setDraft(content);
-        setError(e.message || "回复提交失败，请重试");
-      } finally { sendingRef.current = false; }
+    if (!blockingRun && ChatState.hasUnresolvedItineraryMention(content)) {
+      setError("请先从 @ 列表选择具体行程，再发送消息");
       return;
     }
     if (blockingRun) return;
@@ -419,11 +570,14 @@ function ChatPage({
         conversationId = created.id;
       }
       await submitChatContent(content, composerTarget, conversationId);
-      setComposerTarget(null);
+      setComposerTarget(previous => previous?.mode === "reference" ? previous : null);
     } catch (e) {
       setDraft(content);
       setError(e.message || "发送失败");
-      if (e.code === "conversation_run_active" && activeId) await loadConversation(activeId);
+      if (e.code === "conversation_run_active" && activeId) {
+        await loadConversation(activeId);
+        setComposerTarget(composerTarget);
+      }
     } finally { sendingRef.current = false; }
   };
 
@@ -549,7 +703,7 @@ function ChatPage({
   const focusRun = runId => {
     const node = runNodesRef.current[runId];
     if (!node) return;
-    node.scrollIntoView({ behavior: "smooth", block: "center" });
+    node.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "center" });
     window.setTimeout(() => node.focus(), 350);
   };
 
@@ -561,31 +715,29 @@ function ChatPage({
     if (error) errorRef.current?.focus();
   }, [error]);
 
-  React.useEffect(() => {
-    const waiting = new Set(
-      runList.filter(run => run.status === "waiting_user").map(run => run.id)
-    );
-    const newlyWaiting = [...waiting].find(id => !waitingRunsRef.current.has(id));
-    waitingRunsRef.current = waiting;
-    if (newlyWaiting) window.setTimeout(() => focusRun(newlyWaiting), 0);
-  }, [runList.map(run => `${run.id}:${run.status}`).join("|")]); // eslint-disable-line
-
   const registerRunNode = (runId, node) => {
     if (node) runNodesRef.current[runId] = node;
     else delete runNodesRef.current[runId];
   };
 
+  const referenceItinerary = async card => {
+    if (blockingRun || inputDisabled || loading || sendingRef.current) return;
+    if (conversationArchived && !await newConversation()) return;
+    setComposerTarget(ChatState.itineraryReference(card));
+    window.setTimeout(() => composerRef.current?.focus(), 0);
+  };
+
   const offscreenRuns = observerReady
-    ? activeRuns.filter(run => !visibleRunIds.has(run.id))
+    ? activeRuns.filter(run => run.status !== "waiting_user" && !visibleRunIds.has(run.id))
     : [];
 
   return (
-    <div className={`chat-shell workspace-shell page-fade ${embedded ? "embedded-chat" : ""}`}>
-      {embedded && <div className="studio-chat-toolbar"><button onClick={onBack}><UiIcon name="arrow-right" size={16} />首页</button><span>YOUR PERSONAL TRIP PLANNER</span><button onClick={() => setSidebarOpen(value => !value)} aria-expanded={sidebarOpen}><UiIcon name="menu" size={16} />历史对话</button><button onClick={onToggleDetail}><UiIcon name="map" size={16} />详情</button></div>}
+    <div className={`chat-shell workspace-shell page-fade ${embedded ? "embedded-chat" : ""} ${blockingRun?.status === "waiting_user" ? "clarification-active" : ""}`}>
+      {embedded && <div className="studio-chat-toolbar"><button onClick={onBack}><UiIcon name="arrow-right" size={16} />首页</button><span /><button onClick={() => setSidebarOpen(value => !value)} aria-expanded={sidebarOpen}><UiIcon name="menu" size={16} />历史对话</button><button onClick={onToggleDetail}><UiIcon name="map" size={16} />详情</button></div>}
       <aside className={`chat-sidebar ${sidebarOpen ? "open" : ""}`} aria-label="旅行工作区记录">
         <div className="chat-sidebar-head">
           {embedded && <button onClick={() => setSidebarOpen(false)} aria-label="关闭历史对话"><UiIcon name="close" size={16} /></button>}
-          <div><small>MY JOURNEYS</small><strong>旅行线索</strong></div>
+          <div><strong>旅行线索</strong></div>
           <button onClick={newConversation} aria-label="开始一段新的旅行规划"><UiIcon name="plus" size={15} />新旅程</button>
         </div>
         <div className="conversation-list">
@@ -621,7 +773,7 @@ function ChatPage({
             aria-expanded={sidebarOpen} aria-label="打开旅行对话列表"><UiIcon name="menu" size={19} /></button>
           <div className="chat-title-copy">
             <h2>旅行工作区</h2>
-            <p>{conversationArchived ? "这段旅程已归档，途途正在把有用的旅行习惯整理进画像。" : "行程、路线和细节在这里生长；需要时，再叫途途一起推敲。"}</p>
+            <p>{conversationArchived ? "这段旅程已归档，途见正在把有用的旅行习惯整理进画像。" : "行程、路线和细节在这里生长；需要时，再叫途见一起推敲。"}</p>
           </div>
           {activeConversation && !conversationArchived && (
             <div className="chat-memory-actions">
@@ -636,12 +788,12 @@ function ChatPage({
               {activeConversation.finalization_status === "succeeded" ? "记忆已整理" : activeConversation.finalization_status === "failed" ? "记忆整理失败" : "记忆整理中"}
             </span>
           )}
-          {blockingRun && <span className="chat-task-count">当前对话处理中</span>}
+          {blockingRun && <span className="chat-task-count">{blockingRun.status === "waiting_user" ? "等待你补充" : "当前对话处理中"}</span>}
         </div>
         {compressionFeedback && <div className="chat-compression-feedback" role="status">
           <UiIcon name="check" size={14} />{compressionFeedback}
         </div>}
-        <div className="chat-feed" role="log" aria-label="旅行对话活动" aria-live="off">
+        <div className="chat-feed" role="log" aria-label="旅行对话活动" aria-live="off" tabIndex={0}>
           {loading && <div className="chat-empty">正在恢复对话…</div>}
           {!loading && activityItems.length === 0 && (
             <div ref={firstJourneyRef} className="first-journey">
@@ -686,6 +838,8 @@ function ChatPage({
             }}
             registerRunNode={registerRunNode}
             onItineraryOpen={itineraryId => onOpenPlan?.(itineraryId)}
+            onItineraryReference={referenceItinerary}
+            referenceDisabled={!!blockingRun || inputDisabled || loading}
           />
         </div>
         <div className="chat-status-live" aria-live="polite" aria-atomic="true">
@@ -697,12 +851,13 @@ function ChatPage({
         </div>
         {error && <div ref={errorRef} tabIndex="-1" className="chat-error" role="alert">{error}{activeId && <button onClick={() => loadConversation(activeId)}>恢复对话</button>}</div>}
         {offscreenRuns.length > 0 && (
-          <div className="active-run-rail" aria-label="视口外的活动任务">
+          <div className="active-run-rail" aria-label="当前规划状态">
             {offscreenRuns.slice(0, 3).map(run => (
-              <button key={run.id} onClick={() => focusRun(run.id)}>
-                <span>{run.status === "waiting_user" ? "需要回复" : run.status === "queued" ? "等待开始" : "正在规划"}</span>
-                <strong>{run.request_snapshot?.destination || (run.kind === "revision" ? "行程修改" : "旅行规划")}</strong>
-                <span aria-hidden="true">↗</span>
+              <button className={`planning-pulse status-${run.status}`} key={run.id} onClick={() => focusRun(run.id)} aria-label={run.status === "waiting_user" ? "查看需要补充的信息" : "查看规划进度"}>
+                <span className="planning-pulse-motion" aria-hidden="true">
+                  {run.status === "waiting_user" ? <UiIcon name="chat" size={22} /> : <><i /><i /><i /></>}
+                </span>
+                <span className="planning-pulse-label">{run.status === "waiting_user" ? "等你补充一点信息" : run.status === "queued" ? "准备出发" : "正在规划"}{run.request_snapshot?.destination && <small> · {run.request_snapshot.destination}</small>}</span>
               </button>
             ))}
           </div>
@@ -716,32 +871,35 @@ function ChatPage({
                 : <button onClick={newConversation}>开始新对话</button>}
             </div>
           ) : <>
+          {blockingRun?.status === "waiting_user" && <ClarificationCard key={`${blockingRun.id}:${blockingRun.pending_interaction?.interaction_id || "loading"}`} run={blockingRun}
+            onSubmit={submitClarification} onCancel={async () => {
+              const result = await cancelRuntimeRun(blockingRun.id);
+              setState(previous => ({ ...previous, runs: { ...previous.runs, [result.id]: result } }));
+            }} />}
           <div className="chat-composer">
-            {composerTarget?.mode === "revision" && !blockingRun && (
-              <div className="composer-target">
-                <span>{composerTarget.mode === "resume" ? "正在回复任务" : "正在修改行程"}</span>
-                <strong>{composerTarget.label}</strong>
-                <button onClick={() => setComposerTarget(null)} aria-label="取消指定任务回复"><UiIcon name="close" size={15} /></button>
+            {composerTarget && ["reference", "revision"].includes(composerTarget.mode) && (
+              <div className="composer-target itinerary-reference-chip">
+                <span>{composerTarget.mode === "reference" ? "正在聊这份行程" : "正在修改行程"}</span>
+                <strong>@{composerTarget.label}</strong>
+                <button disabled={!!blockingRun} onClick={() => { setComposerTarget(null); composerRef.current?.focus(); }} aria-label="移除行程引用"><UiIcon name="close" size={15} /></button>
               </div>
             )}
-            <textarea ref={composerRef} value={draft} onChange={e => setDraft(e.target.value)}
-              disabled={inputDisabled || (!!blockingRun && blockingRun.status !== "waiting_user")}
-              aria-label={blockingRun?.status === "waiting_user" ? "回答当前问题" : composerTarget ? composerTarget.label : "给途途发送消息"}
-              placeholder={blockingRun?.status === "waiting_user" ? "回答上方问题，继续这次规划…" : blockingRun ? "规划进行中" : composerTarget?.mode === "revision" ? "说说你想怎么调整…" : "继续聊天，或描述一趟想规划的旅行…"}
-              onKeyDown={e => {
-                if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-                  e.preventDefault(); send();
-                }
-              }} />
+            <ItineraryMentionInput
+              composerRef={composerRef} draft={draft} setDraft={setDraft} onSelect={referenceItinerary} onSend={send}
+              disabled={inputDisabled || !!blockingRun}
+              allowMentions={!blockingRun && !inputDisabled && !loading}
+              ariaLabel="给途见发送消息"
+              placeholder={blockingRun?.status === "waiting_user" ? "请在上方卡片补充信息，原草稿已保留" : blockingRun ? "规划进行中" : composerTarget ? "针对这份行程，说说你的问题或想调整的地方…" : "聊聊旅行，输入 @ 引用已有行程…"}
+            />
             <button className={`composer-send ${blockingRun && blockingRun.status !== "waiting_user" ? "is-stop" : ""}`}
               onClick={blockingRun && blockingRun.status !== "waiting_user" ? () => controlRun(blockingRun, "cancel") : send}
-              disabled={inputDisabled || (blockingRun?.status === "waiting_user" ? !draft.trim() : !blockingRun && (!draft.trim() || revisionSubmitting))}
+              disabled={inputDisabled || (blockingRun?.status === "waiting_user" ? true : !blockingRun && (!draft.trim() || revisionSubmitting))}
               aria-label={blockingRun && blockingRun.status !== "waiting_user" ? "停止当前任务" : "发送消息"}>
               <span aria-hidden="true"><UiIcon name={blockingRun && blockingRun.status !== "waiting_user" ? "stop" : "arrow-up"} size={18} /></span>
               <span className="composer-send-label">{blockingRun && blockingRun.status !== "waiting_user" ? "停止" : "发送"}</span>
             </button>
           </div>
-          <small className="composer-hint">{inputDisabled ? "先保存或取消右侧的手动编辑，再继续对话" : blockingRun?.status === "waiting_user" ? "回答后将继续当前规划" : blockingRun ? "当前对话会在任务完成后恢复输入" : revisionSubmitting ? "正在提交这次行程修改…" : composerTarget ? "这条内容会发送到指定任务" : "可以继续描述你的旅行想法"}</small>
+          <small className="composer-hint">{inputDisabled ? "先保存或取消右侧的手动编辑，再继续对话" : blockingRun?.status === "waiting_user" ? "填写上方卡片后，将继续同一次规划" : blockingRun ? "当前对话会在任务完成后恢复输入" : revisionSubmitting ? "正在提交这次行程修改…" : composerTarget ? "将围绕引用的行程继续对话，可随时移除或更换" : "输入 @，选择一份行程继续聊"}</small>
           </>}
         </div>
       </main>
@@ -802,7 +960,7 @@ function JourneyPlans({ sectionRef, sentinelRef, plans, loading, loadingMore, er
         {!loading && <p>{plans.length ? "每一次出发，都留有下一次想念。" : "你的下一段旅程，会从这里开始。"}</p>}
       </div>
       {loading && <div className="journey-plan-skeletons" aria-label="正在加载历史行程">{[1, 2, 3].map(item => <i key={item} />)}</div>}
-      {!loading && !plans.length && !error && <div className="journey-plans-empty">暂时还没有保存的行程，和途途聊聊下一次想去哪里吧。</div>}
+      {!loading && !plans.length && !error && <div className="journey-plans-empty">暂时还没有保存的行程，和途见聊聊下一次想去哪里吧。</div>}
       {!!plans.length && <div className="journey-plan-grid">
         {plans.map(trip => {
           const destination = trip.destination || "旅行";
@@ -829,21 +987,21 @@ function ActivityTimeline({
   items, currentUsername,
   onBriefUpdate, onBriefSubmit, onBriefDiscard,
   onRunCancel, onRunRetry, onRunOpen, onRunModify, onRunReply, onChatRetry,
-  registerRunNode, onItineraryOpen,
+  registerRunNode, onItineraryOpen, onItineraryReference, referenceDisabled,
 }) {
   return items.map(item => {
     if (item.type === "message") {
       const message = item.entity;
       return (
-        <article key={item.key} className={`chat-message ${message.role}`} aria-label={message.role === "user" ? "你的消息" : "途途的回复"}>
-          <div className="chat-avatar" aria-hidden="true">{message.role === "user" ? currentUsername?.slice(-1) : "途"}</div>
+        <article key={item.key} className={`chat-message ${message.role}`} aria-label={message.role === "user" ? "你的消息" : "途见的回复"}>
+          <div className="chat-avatar" aria-hidden="true">{message.role === "user" ? currentUsername?.slice(-1) : <BrandMark size={30} decorative />}</div>
           <div className="chat-message-stack">
             <div className="chat-bubble">
               {message.role === "assistant"
                 ? <ChatMessageContent content={message.content} />
                 : message.content}
               {message.streaming && <span className="typing-caret" aria-hidden="true" />}
-              {!message.streaming && <MessageArtifacts artifacts={message.artifacts} onOpen={onItineraryOpen} />}
+              {!message.streaming && <MessageArtifacts artifacts={message.artifacts} onOpen={onItineraryOpen} onReference={onItineraryReference} referenceDisabled={referenceDisabled} />}
               {!message.streaming && message.role === "assistant" && message.related_itinerary_id && (
                 <div className="final-itinerary-actions">
                   <button onClick={() => onItineraryOpen?.(message.related_itinerary_id)}>打开完整行程</button>
@@ -871,9 +1029,9 @@ function ActivityTimeline({
       const activityLabel = activity?.label;
       return (
         <article key={item.key} className="chat-thinking" role="status" aria-live="polite">
-          <div className="chat-avatar" aria-hidden="true">途</div>
+          <div className="chat-avatar" aria-hidden="true"><BrandMark size={30} decorative /></div>
           <div className="chat-thinking-body">
-            <span className="chat-thinking-kicker">{isQueued ? "收到，正在接住这句话" : activityLabel ? "途途正在为你处理" : "途途正在思考"}</span>
+            <span className="chat-thinking-kicker">{isQueued ? "收到，正在接住这句话" : activityLabel ? "途见正在为你处理" : "途见正在思考"}</span>
             <strong>{isQueued ? "正在准备理解你的旅行想法…" : activityLabel || "正在梳理目的地、日期和你的偏好…"}</strong>
             <span className="chat-thinking-dots" aria-hidden="true"><i /><i /><i /></span>
           </div>
@@ -913,20 +1071,21 @@ function PlanningProgressTimeline({ run, onCancel, onRetry, onOpen, onModify, on
   const [now, setNow] = React.useState(Date.now());
   const [busy, setBusy] = React.useState("");
   const active = ["queued", "running", "waiting_user"].includes(run.status);
+  const ticking = ["queued", "running"].includes(run.status);
   React.useEffect(() => {
-    if (!active) return undefined;
+    if (!ticking) return undefined;
+    setNow(Date.now());
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
-  }, [active]);
-  const started = Date.parse(run.created_at || run.queued_at || run.updated_at || "") || now;
-  const seconds = Math.max(0, Math.floor((now - started) / 1000));
+  }, [ticking, run.id]);
+  const duration = ChatState.formatRunDuration(ChatState.runElapsedSeconds(run, now));
   const stageIndex = run.status === "succeeded" ? JOURNEY_STEPS.length
     : Math.max(0, Number(run.journey_step_index ?? 0));
-  const stateTitle = run.status === "succeeded" ? `深度思考完成 · ${seconds || 1}s`
+  const stateTitle = run.status === "succeeded" ? `深度思考完成${duration ? ` · ${duration}` : ""}`
     : run.status === "waiting_user" ? (run.kind === "chat" ? "还需要你补充一点信息" : "规划需要你补充信息")
     : run.status === "failed" ? "这次规划暂未完成"
     : run.status === "cancelled" ? "规划已停止"
-    : `正在深度思考… ${seconds}s`;
+    : `正在深度思考…${duration ? ` ${duration}` : ""}`;
   const steps = JOURNEY_STEPS.map((step, index) => ({
     ...step,
     status: run.status === "succeeded" || index < stageIndex ? "done"
@@ -937,27 +1096,25 @@ function PlanningProgressTimeline({ run, onCancel, onRetry, onOpen, onModify, on
     setBusy(name);
     try { await callback(); } finally { setBusy(""); }
   };
-  return <section ref={refNode} data-run-id={run.id} className={`planning-thought status-${run.status}`} aria-live="polite">
+  return <section ref={refNode} tabIndex={-1} data-run-id={run.id} className={`planning-thought status-${run.status}`} aria-live="polite">
     <button className="planning-thought-head" onClick={() => setExpanded(value => !value)} aria-expanded={expanded}>
-      <span><i className={active ? "is-active" : ""} aria-hidden="true" />{stateTitle}</span><b aria-hidden="true"><UiIcon name={expanded ? "chevron-up" : "chevron-down"} size={16} /></b>
+      <span><i className={ticking ? "is-active" : ""} aria-hidden="true" />{stateTitle}</span><b aria-hidden="true"><UiIcon name={expanded ? "chevron-up" : "chevron-down"} size={16} /></b>
     </button>
-    {run.status === "waiting_user" && run.pending_interaction?.question && (
-      <p className="planning-thought-question">{run.pending_interaction.question}</p>
-    )}
-    {expanded && (run.kind !== "chat" || run.journey_step_index !== undefined) && <div className="planning-thought-steps" aria-label="规划进度">
+    {run.status === "failed" && run.error_public?.message && <p className="planning-thought-question" role="alert">{run.error_public.message}</p>}
+    {run.status === "waiting_user" && <p className="planning-thought-reply-hint">请在输入框上方的补充卡片中填写</p>}
+    {expanded && run.status !== "waiting_user" && (run.kind !== "chat" || run.journey_step_index !== undefined) && <div className="planning-thought-steps" aria-label="规划进度">
       {steps.map((step, index) => <div key={step.key} className={`planning-thought-step ${step.status}`}>
         <i aria-hidden="true">{step.status === "done" ? <UiIcon name="check" size={11} strokeWidth={2.5} /> : step.status === "active" ? "•" : ""}</i>
         <div><strong>{step.label}</strong><small>{step.status === "active" && run.latest_progress_label ? run.latest_progress_label : step.status === "done" ? (step.doneDetail || "已完成") : step.detail}</small></div>
         {index < steps.length - 1 && <em aria-hidden="true" />}
       </div>)}
     </div>}
-    {run.status === "waiting_user" && <span className="planning-thought-reply-hint">请在下方输入框回答</span>}
-    {active && <button className="planning-thought-text-action" disabled={!!busy} onClick={() => action("cancel", onCancel)}>{busy === "cancel" ? "正在停止…" : "停止规划"}</button>}
+    {active && run.status !== "waiting_user" && <button className="planning-thought-text-action" disabled={!!busy} onClick={() => action("cancel", onCancel)}>{busy === "cancel" ? "正在停止…" : "停止规划"}</button>}
     {["failed", "cancelled"].includes(run.status) && <button className="planning-thought-action" disabled={!!busy} onClick={() => action("retry", onRetry)}>{busy === "retry" ? "正在重试…" : "使用原需求再试一次"}</button>}
   </section>;
 }
 
-function MessageArtifacts({ artifacts, onOpen }) {
+function MessageArtifacts({ artifacts, onOpen, onReference, referenceDisabled }) {
   const collections = (Array.isArray(artifacts) ? artifacts : [])
     .filter(item => item?.type === "itinerary_collection")
     .slice(0, 5);
@@ -971,23 +1128,23 @@ function MessageArtifacts({ artifacts, onOpen }) {
             {collection.match_kind === "near" && <span>相近结果</span>}
           </div>
           <div className="itinerary-card-grid">
-            {(collection.items || []).slice(0, 5).map(card => (
-              <button
-                type="button"
-                className="saved-itinerary-card"
-                key={card.itinerary_id}
-                onClick={() => onOpen?.(card.itinerary_id)}
-                aria-label={`查看${card.destination || "旅行"}${card.duration_days ? `${card.duration_days}日` : ""}完整方案`}
-              >
-                <span className="saved-itinerary-kicker">
-                  {card.is_modified ? `修改版 V${card.version}` : "保存的方案"}
-                </span>
-                <strong>{card.destination || "旅行方案"}{card.duration_days ? ` · ${card.duration_days}日` : ""}</strong>
-                <small>{card.start_date && card.end_date ? `${card.start_date} — ${card.end_date}` : "日期未固定"}</small>
-                {!!card.highlights?.length && <span className="saved-itinerary-highlights">{card.highlights.slice(0, 3).join(" · ")}</span>}
-                <span className="saved-itinerary-open">查看完整方案 <UiIcon name="arrow-right" size={14} /></span>
-              </button>
-            ))}
+            {(collection.items || []).slice(0, 5).map(card => {
+              const reference = ChatState.itineraryReference(card);
+              return <article className="saved-itinerary-card" key={card.itinerary_id}>
+                <ItineraryCover className="saved-itinerary-cover" planId={card.itinerary_id} />
+                <div className="saved-itinerary-copy">
+                  <span className="saved-itinerary-kicker"><UiIcon name="map" size={13} />{card.is_modified ? "调整后的旅程" : "已保存的旅程"}<b>{reference.version}</b></span>
+                  <strong>{reference.title}</strong>
+                  <small>{reference.dates}</small>
+                  {!!card.highlights?.length && <span className="saved-itinerary-highlights">{card.highlights.slice(0, 3).join(" · ")}</span>}
+                  {card.created_at && <small className="saved-itinerary-created">保存于 {card.created_at.slice(0, 16).replace("T", " ")}</small>}
+                </div>
+                <div className="saved-itinerary-actions">
+                  <button type="button" className="saved-itinerary-open" onClick={() => onOpen?.(card.itinerary_id)} aria-label={`查看${reference.label}完整方案`}>查看行程 <UiIcon name="arrow-up-right" size={14} /></button>
+                  {onReference && <button type="button" className="saved-itinerary-reference" disabled={referenceDisabled} onClick={() => onReference(card)} aria-label={`引用${reference.label}`}><span aria-hidden="true">@</span>聊聊这份行程</button>}
+                </div>
+              </article>;
+            })}
           </div>
         </section>
       ))}
@@ -1119,7 +1276,7 @@ function ReferenceDayTimeline({ items, onNav, activeNavKey, tipStatus }) {
       const navKey = next ? `reference:${index}` : null;
       const isMeal = item.type !== "attraction";
       const note = item.note || item.reason || item.address || item.addr
-        || (tipStatus === "queued" || tipStatus === "running" ? "途途正在整理这处地点的旅行贴士…" : "已同步到当前路线。点开地图标记可查看更多地点信息。");
+        || (tipStatus === "queued" || tipStatus === "running" ? "途见正在整理这处地点的旅行贴士…" : "已同步到当前路线。点开地图标记可查看更多地点信息。");
       const card = <article className="reference-timeline-card">
         <div className="reference-timeline-card-row">
           <time>{item.start || (item.type === "lunch" ? "午餐" : item.type === "dinner" ? "晚餐" : "待定")}</time>
@@ -1688,7 +1845,7 @@ function LegacyTripDetailPage({ plan: planProp, planId: planIdProp, onRequestMod
                     onBlur={() => { const current = draft[dayIdx]?.theme || ""; if (themeInput !== current) applyEdit(days => { days[dayIdx].theme = themeInput; }); }}
                     onKeyDown={event => event.key === "Enter" && event.target.blur()} />}
                   <RecommendStrip candidates={viewPlan.candidate_spots} editing={editing} />
-                  <div className="tip-card"><Mascot size={72} pose="point" /><div className="tip-body"><div className="tip-title">途途的小贴士</div>
+                  <div className="tip-card"><BrandMark size={72} /><div className="tip-body"><div className="tip-title">途见的小贴士</div>
                     {plan.tips.length ? <ul className="tip-list">{plan.tips.map((tip, index) => <li key={index}>{tip}</li>)}</ul> : <div className="tip-text">行程已为你精心安排，祝旅途愉快！</div>}
                     {["failed", "cancelled", "unavailable"].includes(plan.tip_status) && planId && <button className="nearby-btn" onClick={retryTips}>重新生成景点贴士</button>}
                   </div></div>
@@ -1870,7 +2027,7 @@ function ItineraryCopilot({
         <div>{message.role !== "user" && <small>旅行助手</small>}<p>{message.content}</p><em>{message.role === "user" ? "刚刚" : "已结合地图上下文"}</em></div>
       </div>)}
       <div className="detail-chat-message assistant detail-route-summary"><span className="detail-chat-avatar"><UiIcon name="map" size={14} /></span><div><small>{dayLabel} · 当前安排</small><p><b>{day?.theme || "今天的旅行安排"}</b></p><section><span>{attractionCount} 个景点</span><span>{mealCount} 个餐饮</span><span>地图已同步</span></section></div></div>
-      {blockingRun && <div className="detail-run-card"><header><span className="detail-run-spinner" /><b>{blockingRun.status === "waiting_user" ? "需要你的回复" : "正在调整当前行程"}</b></header><p>{blockingRun.stage_label || blockingRun.pending_interaction?.prompt || "途途正在结合路线、距离和你的要求生成修改方案。"}</p>{blockingRun.status !== "waiting_user" && <button onClick={() => controlRun(blockingRun, "cancel")}>停止</button>}</div>}
+      {blockingRun && <div className="detail-run-card"><header><span className="detail-run-spinner" /><b>{blockingRun.status === "waiting_user" ? "需要你的回复" : "正在调整当前行程"}</b></header><p>{blockingRun.stage_label || blockingRun.pending_interaction?.prompt || "途见正在结合路线、距离和你的要求生成修改方案。"}</p>{blockingRun.status !== "waiting_user" && <button onClick={() => controlRun(blockingRun, "cancel")}>停止</button>}</div>}
       {!blockingRun && failedRun && <div className="detail-run-card failed"><header><UiIcon name="alert" size={15} /><b>这次修改没有完成</b></header><p>{failedRun.error_public?.message || "可以保留输入并重新尝试。"}</p><button onClick={() => controlRun(failedRun, "retry")}>重新尝试</button></div>}
       {loading && <div className="detail-chat-loading">正在恢复关联对话…</div>}
       {error && <div className="detail-chat-error" role="alert">{error}</div>}
@@ -1933,7 +2090,7 @@ function HistoryPage({ onOpenPlan, currentUsername }) {
 
       {!loading && trips && trips.length === 0 && (
         <div className="empty-state">
-          <Mascot size={100} pose="think" />
+          <BrandMark size={100} />
           <div className="es-title">还没有行程记录</div>
           <div>先去新建一趟旅行吧！</div>
         </div>
@@ -2065,7 +2222,7 @@ function MemoryFactCard({ fact, candidate = false, onChanged }) {
             <button disabled={busy} onClick={() => { setValue(fact.value_text); setEditing(false); }}>取消</button>
           </div>
         ) : <strong>{fact.value_text}</strong>}
-        <p>{candidate ? (fact.sensitivity === "protected" ? "这条信息较敏感，确认后才会用于新的旅行对话。" : "途途从对话中推测了这条习惯，请你确认。") : `来源：${fact.source_kind === "manual" ? "你手动添加" : fact.source_kind === "legacy" ? "旧画像迁移" : "旅行对话"}`}</p>
+        <p>{candidate ? (fact.sensitivity === "protected" ? "这条信息较敏感，确认后才会用于新的旅行对话。" : "途见从对话中推测了这条习惯，请你确认。") : `来源：${fact.source_kind === "manual" ? "你手动添加" : fact.source_kind === "legacy" ? "旧画像迁移" : "旅行对话"}`}</p>
       </div>
       <div className="memory-fact-actions">
         {candidate && <button className="memory-approve" disabled={busy} onClick={() => run(() => approveMemoryFact(fact.id))}>确认记住</button>}
@@ -2129,7 +2286,7 @@ function ProfilePage({ currentUsername }) {
       {profileError && <div role="alert" className="chat-error">{profileError}<button onClick={refreshProfile}>重新加载</button></div>}
       <div className="mag-head">
         <div>
-          <div className="eyebrow">PROFILE · 旅行画像</div>
+
           <h1>我的旅行画像</h1>
         </div>
         <div className="head-note">只把你确认过的旅行习惯<br />带进下一段对话</div>
@@ -2138,7 +2295,7 @@ function ProfilePage({ currentUsername }) {
       <div className="profile-grid">
         <aside className="profile-aside">
           <div style={{ display: "grid", placeItems: "center" }}>
-            <Mascot size={120} pose="idle" />
+            <BrandMark size={120} />
           </div>
           <div className="pa-name">{username}</div>
           <div className="pa-sub">记忆版本 {profile.revision} · 每段对话都会冻结一份独立快照</div>
@@ -2153,7 +2310,7 @@ function ProfilePage({ currentUsername }) {
 
         <div>
           <form className="memory-add-card" onSubmit={addFact}>
-            <div><span>ADD A MEMORY</span><strong>告诉途途一条稳定的旅行习惯</strong></div>
+            <div><strong>告诉途见一条稳定的旅行习惯</strong></div>
             <div className="memory-add-grid">
               <select value={form.category} onChange={e => setForm({ ...form, category: e.target.value })}>{Object.entries(MEMORY_CATEGORY_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select>
               <select value={form.polarity} onChange={e => setForm({ ...form, polarity: e.target.value })}>{Object.entries(MEMORY_POLARITY_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select>
@@ -2166,7 +2323,7 @@ function ProfilePage({ currentUsername }) {
           </form>
           {loading ? <div className="memory-loading">正在翻开你的旅行档案…</div> : <>
             {profile.candidate_facts.length > 0 && <section className="memory-section candidate-section"><header><span>NEEDS YOUR WORD</span><h2>待你确认</h2><p>推断或较敏感的信息不会自动用于新对话。</p></header><div className="memory-fact-list">{profile.candidate_facts.map(fact => <MemoryFactCard key={fact.id} fact={fact} candidate onChanged={refreshProfile} />)}</div></section>}
-            <section className="memory-section"><header><span>TRAVEL MEMORY</span><h2>途途已经记住</h2><p>当前对话不会中途刷新；这些变化会从下一段新对话开始生效。</p></header>
+            <section className="memory-section"><header><h2>途见已经记住</h2><p>当前对话不会中途刷新；这些变化会从下一段新对话开始生效。</p></header>
               {groups.length ? groups.map(([label, facts]) => <div className="memory-group" key={label}><h3>{label}<small>{facts.length}</small></h3><div className="memory-fact-list">{facts.map(fact => <MemoryFactCard key={fact.id} fact={fact} onChanged={refreshProfile} />)}</div></div>) : <div className="memory-empty">还没有长期旅行记忆。你可以先添加一条，或在聊完后归档对话。</div>}
             </section>
           </>}
@@ -2300,7 +2457,7 @@ function SweepPreviewPage() {
             {adapted.tips?.length > 0 && (
               <div className="tip-card" style={{ marginTop: 20 }}>
                 <div className="tip-body">
-                  <div className="tip-title">途途的小贴士</div>
+                  <div className="tip-title">途见的小贴士</div>
                   <ul className="tip-list">
                     {adapted.tips.map((t, i) => <li key={i}>{t}</li>)}
                   </ul>
@@ -2367,6 +2524,9 @@ function DashboardPlanCard({ trip, onOpen }) {
 
 function DashboardPage({ currentUsername, onStart, onFocusComposer, onDraftChange, onOpenPlan, onOpenWorkspace }) {
   const [draft, setDraft] = React.useState("");
+  const composerRef = React.useRef(null);
+  const updateDraft = value => { setDraft(value); onDraftChange?.(value); };
+  const chooseCity = city => { updateDraft(`${city}，`); composerRef.current?.focus(); };
   const [mode, setMode] = React.useState("plan");
   const [plans, setPlans] = React.useState([]);
   const [loadingPlans, setLoadingPlans] = React.useState(false);
@@ -2420,35 +2580,29 @@ function DashboardPage({ currentUsername, onStart, onFocusComposer, onDraftChang
 
   return <main className="dashboard-page page-fade">
     <section className="dashboard-hero" aria-labelledby="dashboard-title">
-      <div className="dashboard-landscape" aria-hidden="true"><i /><i /><i /></div>
+
       <div className="dashboard-hero-copy">
-        <h1 id="dashboard-title">开始计划下一段旅程</h1>
-        <p>1分钟创建行程，或帮你一键解析</p>
+
+        <h1 id="dashboard-title">让下一段旅程，<br className="mobile-title-break" />清晰起来。</h1>
+        <p>想去哪里，想怎么过。说说看，我们一起安排。</p>
+
       </div>
       <div className="dashboard-composer">
-        <div className="dashboard-mode-tabs" role="tablist" aria-label="输入模式"><button role="tab" aria-selected={mode === "plan"} onClick={() => setMode("plan")}>⌕　计划</button><button role="tab" aria-selected={mode === "parse"} onClick={() => setMode("parse")}>⌁　解析</button></div>
-        <textarea value={draft} onChange={event => { setDraft(event.target.value); onDraftChange?.(event.target.value); }}
-          aria-label="描述旅行想法" placeholder={mode === "parse" ? "粘贴攻略文字或旅行安排，帮你整理成完整行程" : "描述对目的地的旅行想法，智能生成行程计划"}
-          onKeyDown={event => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); begin(); } }} />
-        <div className="dashboard-composer-foot">
-          <div className="dashboard-style-chips">
-            {["北京", "上海", "南京", "苏州", "广州", "韩国"].map(label => <button key={label} onClick={() => setDraft(`${label}，`)}>{label}</button>)}
-          </div>
-          <button className="dashboard-send" disabled={!draft.trim()} onClick={() => begin()} aria-label="开始旅行规划"><UiIcon name="arrow-up" size={21} /></button>
-        </div>
+
+        <div className="dashboard-mode-tabs" role="tablist" aria-label="输入模式">{[{id:"plan",label:"计划旅行",icon:"map"},{id:"parse",label:"解析攻略",icon:"edit"}].map(item => <button key={item.id} role="tab" aria-selected={mode === item.id} tabIndex={mode === item.id ? 0 : -1} onClick={() => setMode(item.id)} onKeyDown={event => { if (["ArrowLeft", "ArrowRight"].includes(event.key)) { event.preventDefault(); setMode(mode === "plan" ? "parse" : "plan"); event.currentTarget.parentElement.querySelector('[aria-selected="false"]')?.focus(); } }}><UiIcon name={item.icon} size={16} />{item.label}</button>)}</div>
+        <textarea ref={composerRef} value={draft} onChange={event => updateDraft(event.target.value)}
+          aria-label="描述旅行想法" placeholder={mode === "parse" ? "粘贴你收藏的攻略文字或旅行安排，整理成一份清晰的行程。" : "比如，去南京待三天。想逛博物馆、走走老街，也留一点发呆的时间。"}
+          onKeyDown={event => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); begin(); } }} />
+        <div className="dashboard-composer-foot"><span>目的地、时间、偏好，慢慢聊</span><button className="dashboard-send" disabled={!draft.trim()} onClick={() => begin()} aria-label="开始旅行规划">开始规划 <UiIcon name="arrow-right" size={17} /></button></div>
+
       </div>
     </section>
-
-    <section className="dashboard-cities" aria-label="热门目的地">
-      <strong>热门目的地</strong>
-      <div>{cities.map(city => <button key={city} onClick={() => setDraft(`${city}，`)}>{city}</button>)}</div>
-    </section>
-
+    <section className="dashboard-cities" aria-label="目的地灵感"><strong>还没想好去哪？</strong><div>{cities.map(city => <button key={city} onClick={() => chooseCity(city)}>{city}<UiIcon name="arrow-up-right" size={13} /></button>)}</div></section>
     <section className="dashboard-plans" aria-labelledby="dashboard-plans-title">
-      <div className="dashboard-section-head"><div><span>MY PLANS</span><h2 id="dashboard-plans-title">我的计划</h2></div><button onClick={onOpenWorkspace}>进入旅行工作区 <UiIcon name="arrow-right" size={15} /></button></div>
-      {!currentUsername && <div className="dashboard-plan-empty">登录后，在这里回看和继续编辑每一段旅行。</div>}
+      <div className="dashboard-section-head"><div><h2 id="dashboard-plans-title">我的计划</h2></div><button onClick={onOpenWorkspace}>进入旅行工作区 <UiIcon name="arrow-right" size={15} /></button></div>
+      {!currentUsername && <div className="dashboard-plan-empty"><BrandMark size={44} decorative /><div><strong>给下一段旅程，留一个位置。</strong><p>登录后，在这里回看和继续编辑每一段旅行。</p></div><button onClick={onOpenWorkspace}>登录，开始记录 <UiIcon name="arrow-right" size={15} /></button></div>}
       {currentUsername && loadingPlans && <div className="dashboard-plan-grid dashboard-loading">{[1, 2, 3, 4].map(item => <i key={item} />)}</div>}
-      {currentUsername && !loadingPlans && !plans.length && !plansError && <div className="dashboard-plan-empty">还没有保存的行程。先说说你想去哪里吧。</div>}
+      {currentUsername && !loadingPlans && !plans.length && !plansError && <div className="dashboard-plan-empty"><BrandMark size={44} decorative /><div><strong>第一段旅程，从一句话开始。</strong><p>还没有保存的行程。先说说你想去哪里吧。</p></div><button onClick={() => composerRef.current?.focus()}>写下旅行想法 <UiIcon name="arrow-right" size={15} /></button></div>}
       {currentUsername && !loadingPlans && !!plansError && <div className="dashboard-plan-empty dashboard-plan-error">{plansError}<button onClick={() => loadPlans()}>重新加载</button></div>}
       {!!plans.length && <div className="dashboard-plan-grid">
         {plans.map(trip => <DashboardPlanCard key={trip.id} trip={trip} onOpen={() => onOpenPlan?.(trip.id)} />)}
@@ -2459,6 +2613,7 @@ function DashboardPage({ currentUsername, onStart, onFocusComposer, onDraftChang
         {!loadingMorePlans && !plansError && !plansCursor && <span>已展示全部计划</span>}
       </div>}
     </section>
+    <footer className="dashboard-footer">途见 · 留一点时间，给路上的惊喜。</footer>
   </main>;
 }
 

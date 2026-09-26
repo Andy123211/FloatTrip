@@ -23,7 +23,7 @@ def _get_redis():
 
     redis_url = os.getenv("REDIS_URL", "").strip()
     if not redis_url:
-        logger.info("未配置 REDIS_URL，缓存功能已禁用")
+        logger.info("未配置 REDIS_URL，Redis 缓存未启用；高德本地 HTTP 缓存独立运行")
         return None
 
     try:
@@ -77,9 +77,11 @@ def weather_cache_key(city: str) -> str:
     return f"tripagent:weather:{city}"
 
 
-def poi_cache_key(city: str, keyword: str) -> str:
-    """POI 搜索缓存键。格式：tripagent:poi:{city}:{keyword}"""
-    return f"tripagent:poi:{city}:{keyword}"
+def poi_cache_key(city: str, keyword: str, *, types: str = "110000", offset: int = 25, page: int = 1) -> str:
+    """Versioned key includes every variable search parameter; ignore old ambiguous keys."""
+    import hashlib
+    request = json.dumps([city, keyword, types, offset, page], ensure_ascii=False)
+    return 'tripagent:poi:v2:' + hashlib.sha256(request.encode()).hexdigest()
 
 
 # ─── TTL 常量 ──────────────────────────────────────────────────

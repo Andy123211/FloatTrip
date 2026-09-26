@@ -75,13 +75,22 @@ def build_graph(
 ):
     g = StateGraph(TravelPlanState)
 
+    from app.planning import grounded
+    improved = grounded.variant() != "A"
+    if improved:
+        g.add_node("requirements_and_draft", _with_progress("requirements_and_draft", grounded.prepare))
+
     g.add_node("weather_lookup", _with_progress("weather_lookup", weather_lookup_node))
-    g.add_node("attraction_search", _with_progress("attraction_search", attraction_search_node))
-    g.add_node("candidate_builder", _with_progress("candidate_builder", make_candidate_builder_node(model_name)))
-    g.add_node("optimizer", _with_progress("optimizer", optimize_attractions_node))
-    g.add_node("quality_gate", _with_progress("quality_gate", quality_gate_node))
+    g.add_node("attraction_search", _with_progress("attraction_search", grounded.search if improved else attraction_search_node))
+    g.add_node("candidate_builder", _with_progress("candidate_builder", grounded.candidates if improved else make_candidate_builder_node(model_name)))
+    g.add_node("optimizer", _with_progress("optimizer", grounded.optimize if improved else optimize_attractions_node))
+    g.add_node("quality_gate", _with_progress("quality_gate", grounded.quality if improved else quality_gate_node))
     g.add_node("finalize", _with_progress("finalize", make_finalize_node(memory_writer)))
-    g.add_edge(START, "weather_lookup")
+    if improved:
+        g.add_edge(START, "requirements_and_draft")
+        g.add_edge("requirements_and_draft", "weather_lookup")
+    else:
+        g.add_edge(START, "weather_lookup")
     g.add_edge("weather_lookup", "attraction_search")
     g.add_edge("attraction_search", "candidate_builder")
     g.add_edge("candidate_builder", "optimizer")
@@ -104,6 +113,8 @@ def build_graph(
 # 节点名 → 进度文案。同时充当“哪些事件需要透出”的过滤白名单。
 # planner/reviewer 文案在运行时按轮次/通过位动态拼接，这里留占位。
 _NODE_LABELS: dict[str, str] = {
+    "revision_prepare": "正在理解这次行程调整",
+    "revision_search": "正在查找更合适的景点",
     "weather_lookup":    "🌦 正在读取已确认需求并查询天气",
     "query_rewrite":     "🔎 正在结合用户画像改写查询",
     "intent":            "🧭 正在理解出行意图（目的地 / 日期 / 偏好）",
@@ -128,28 +139,6 @@ def _route_after_review_for_modification(state: TravelPlanState) -> str:
     return "planner"
 
 
-def _revision_concern_node(state: TravelPlanState) -> dict[str, Any]:
-    if not state.modification_concern:
-        return {}
-    response = interrupt(
-        {
-            "question": state.modification_concern,
-            "input_schema": {
-                "type": "string",
-                "description": "确认继续修改，或补充新的修改要求",
-            },
-        }
-    )
-    response_text = str(response).strip()
-    return {
-        "modification_concern": None,
-        "route_modify_opinion": (
-            state.route_modify_opinion
-            if not response_text
-            else f"{state.route_modify_opinion or ''}\n【用户确认/补充】{response_text}"
-        ),
-    }
-
 
 def build_runtime_revision_graph(
     model_name: str | None = None,
@@ -157,9 +146,16 @@ def build_runtime_revision_graph(
     checkpointer=None,
 ):
     """Checkpointed revision graph using the same interrupt lifecycle as planning."""
+    from app.planning.revision import (
+        make_revision_prepare_node, revision_search_node, revision_issue_kind,
+        revision_choice_node, revision_dates_node,
+    )
     graph = StateGraph(TravelPlanState)
+    graph.add_node("revision_dates", revision_dates_node)
+    graph.add_node("revision_prepare", _with_progress("revision_prepare", make_revision_prepare_node(model_name)))
+    graph.add_node("revision_search", _with_progress("revision_search", revision_search_node))
     graph.add_node("planner", _with_progress("planner", make_planner_node(model_name)))
-    graph.add_node("revision_concern", _revision_concern_node)
+    graph.add_node("revision_concern", revision_choice_node)
     graph.add_node("reviewer", _with_progress("reviewer", make_reviewer_node(model_name)))
     graph.add_node("meal_search", _with_progress("meal_search", meal_search_node))
     graph.add_node(
@@ -167,9 +163,13 @@ def build_runtime_revision_graph(
         _with_progress("meal_recommend", make_meal_recommend_node(model_name)),
     )
     graph.add_node("finalize", _with_progress("finalize", make_finalize_node(None)))
-    graph.add_edge(START, "planner")
-    graph.add_edge("planner", "revision_concern")
-    graph.add_edge("revision_concern", "reviewer")
+    graph.add_edge(START, "revision_dates")
+    graph.add_conditional_edges("revision_dates", lambda s: "revision_prepare" if s.travel_start_date and s.travel_end_date else "revision_dates")
+    graph.add_conditional_edges("revision_prepare", lambda s: "revision_search" if s.revision_needs_search else "planner")
+    graph.add_conditional_edges("revision_search", lambda s: "revision_search" if s.revision_needs_search else "planner")
+    graph.add_conditional_edges("planner", revision_issue_kind,
+                                {"search": "revision_search", "choice": "revision_concern", "review": "reviewer"})
+    graph.add_edge("revision_concern", "planner")
     graph.add_conditional_edges(
         "reviewer",
         _route_after_review_for_modification,

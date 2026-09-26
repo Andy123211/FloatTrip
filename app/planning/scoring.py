@@ -172,7 +172,8 @@ def evaluate_itinerary(
                 } & set(previous_candidate.get("semantic_tags") or []):
                     raw["consecutive_high_fatigue"] += 1
                 previous_end = int(previous.get("end_min", 0))
-                raw["waiting_per_hour"] += max(0, start - previous_end - 20) / 60.0
+                transfer = max(20, (previous_candidate.get("transfer_minutes_to") or {}).get(spot["name"], 20))
+                raw["waiting_per_hour"] += max(0, start - previous_end - transfer) / 60.0
         loads.append(day_load / 60.0)
     if loads:
         # Linear CP-SAT formulation and offline evaluator share the same stable

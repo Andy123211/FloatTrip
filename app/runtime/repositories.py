@@ -954,9 +954,11 @@ class RunRepository:
         return [_decode_run(row) for row in rows]
 
     def orphaned_active(self) -> list[dict[str, Any]]:
+        # Waiting runs have a durable interaction/checkpoint and no executing
+        # worker to orphan. Keep them resumable across process restarts.
         with get_conn(self.db_path) as conn:
             rows = conn.execute(
-                "SELECT * FROM runs WHERE status IN ('running','waiting_user') "
+                "SELECT * FROM runs WHERE status='running' "
                 "ORDER BY updated_at,id"
             ).fetchall()
         return [_decode_run(row) for row in rows]

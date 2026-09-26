@@ -1,20 +1,6 @@
 // main.jsx — App 壳：导航 / 主题 / 认证 / 路由
 
-const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
-  "theme": "morning",
-  "mascot": true
-}/*EDITMODE-END*/;
-
-const THEME_OPTIONS = [
-  { value: "morning", label: "晨光 · 蜂蜜黄" },
-  { value: "celadon", label: "青野 · 嫩芽绿" },
-  { value: "night",   label: "夜旅 · 可可棕" },
-  { value: "sky",     label: "晴日 · 奶油白" },
-];
-const THEME_ICONS = { morning: "sun", celadon: "leaf", night: "moon", sky: "sparkle" };
-
 function App() {
-  const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
   const legacyHistoryPath = window.location.pathname === "/history";
   const initialPathPage = "home";
   const [profileOpen, setProfileOpen] = React.useState(window.location.pathname === "/profile");
@@ -85,14 +71,6 @@ function App() {
     return () => window.removeEventListener("auth:expired", onExpired);
   }, []);
 
-  React.useEffect(() => {
-    document.documentElement.setAttribute("data-theme", t.theme || "morning");
-  }, [t.theme]);
-
-  React.useEffect(() => {
-    document.documentElement.setAttribute("data-mascot", t.mascot ? "on" : "off");
-  }, [t.mascot]);
-
   const go = (p) => {
     if (p !== page && navigationGuardRef.current?.() === false) return;
     setPage(p);
@@ -117,6 +95,7 @@ function App() {
       return;
     }
     if (workspaceTransition !== "idle") return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) { setPage("chat"); window.scrollTo({ top: 0 }); return; }
     setHomePrompt(prompt || "");
     setWorkspaceTransition("home-out");
     const leaveTimer = window.setTimeout(() => {
@@ -203,10 +182,10 @@ function App() {
     <div className={`app-shell page-${page} workspace-transition-${workspaceTransition}`}>
       <header className="topbar">
         <div className="brand" role="button" tabIndex="0" aria-label="返回首页" onKeyDown={event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); go("home"); } }} onClick={() => go("home")}>
-          <div className="brand-glyph"><img src="/favicon.png?v=20260830-duck-guide" alt="" /></div>
+          <div className="brand-glyph"><BrandMark size={38} decorative /></div>
           <div>
-            <div className="brand-name">途见 · AI 旅行规划</div>
-            <div className="brand-sub">Travel Journal by Agents</div>
+            <div className="brand-name">途见 <span>FloatTrip</span></div>
+            <div className="brand-sub">把旅途，慢慢展开</div>
           </div>
         </div>
         <nav className="topnav">
@@ -220,21 +199,6 @@ function App() {
           </button>
 
         </nav>
-
-        <div className="theme-switcher" role="group" aria-label="切换主题">
-          {THEME_OPTIONS.map(({ value, label }) => (
-            <button
-              key={value}
-              className={`theme-seg${t.theme === value ? " active" : ""}`}
-              title={label}
-              aria-label={label}
-              aria-pressed={t.theme === value}
-              onClick={() => setTweak("theme", value)}
-            >
-              <UiIcon name={THEME_ICONS[value]} size={15} />
-            </button>
-          ))}
-        </div>
 
         {authUser ? (
           <button className="user-chip" aria-label="打开我的旅行画像" aria-haspopup="dialog" onClick={() => setProfileOpen(true)}>

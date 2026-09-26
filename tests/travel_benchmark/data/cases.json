@@ -1,0 +1,1535 @@
+{
+  "version": "sh-nj-v1",
+  "fixed_start_date": "2026-10-13",
+  "cases": [
+    {
+      "id": "sh-first-1d",
+      "city": "上海",
+      "scenario": "first-1d",
+      "input": {
+        "query": "2026-10-13开始，上海1日游。第一次来，希望看当地经典热门景点。景点为主，餐饮就近即可。",
+        "destination": "上海",
+        "start_date": "2026-10-13",
+        "end_date": "2026-10-13",
+        "days": 1,
+        "trip_focus": "sights_first",
+        "attraction_preference": "第一次来，希望看当地经典热门景点。",
+        "habit_preference": null,
+        "effective_constraints": [
+          {
+            "id": "sh-first-1d-c1",
+            "category": "attraction_preference",
+            "value_text": "第一次来，希望看当地经典热门景点。",
+            "polarity": "prefer",
+            "source": "conversation",
+            "application_level": "preference"
+          }
+        ],
+        "memory_profile_snapshot": []
+      },
+      "expectations": {
+        "eligible_hot": [
+          "sh-bund",
+          "sh-lujiazui",
+          "sh-nanjingroad",
+          "sh-oldcity",
+          "sh-pearl",
+          "sh-tower",
+          "sh-yuyuan"
+        ],
+        "hot_group_target": 2,
+        "acceptable_any_of": [],
+        "must_visit": [],
+        "avoid": [],
+        "interest_tags": [],
+        "max_per_day": null,
+        "earliest_start": null,
+        "manual_checks": "第一次来，希望看当地经典热门景点。",
+        "memory_scope": null
+      },
+      "dialogue": false
+    },
+    {
+      "id": "sh-first-2d",
+      "city": "上海",
+      "scenario": "first-2d",
+      "input": {
+        "query": "2026-10-13开始，上海2日游。第一次来，希望看当地经典热门景点。景点为主，餐饮就近即可。",
+        "destination": "上海",
+        "start_date": "2026-10-13",
+        "end_date": "2026-10-14",
+        "days": 2,
+        "trip_focus": "sights_first",
+        "attraction_preference": "第一次来，希望看当地经典热门景点。",
+        "habit_preference": null,
+        "effective_constraints": [
+          {
+            "id": "sh-first-2d-c1",
+            "category": "attraction_preference",
+            "value_text": "第一次来，希望看当地经典热门景点。",
+            "polarity": "prefer",
+            "source": "conversation",
+            "application_level": "preference"
+          }
+        ],
+        "memory_profile_snapshot": []
+      },
+      "expectations": {
+        "eligible_hot": [
+          "sh-bund",
+          "sh-lujiazui",
+          "sh-nanjingroad",
+          "sh-oldcity",
+          "sh-pearl",
+          "sh-tower",
+          "sh-yuyuan"
+        ],
+        "hot_group_target": 3,
+        "acceptable_any_of": [],
+        "must_visit": [],
+        "avoid": [],
+        "interest_tags": [],
+        "max_per_day": null,
+        "earliest_start": null,
+        "manual_checks": "第一次来，希望看当地经典热门景点。",
+        "memory_scope": null
+      },
+      "dialogue": false
+    },
+    {
+      "id": "sh-first-3d",
+      "city": "上海",
+      "scenario": "first-3d",
+      "input": {
+        "query": "2026-10-13开始，上海3日游。第一次来，希望看当地经典热门景点。景点为主，餐饮就近即可。",
+        "destination": "上海",
+        "start_date": "2026-10-13",
+        "end_date": "2026-10-15",
+        "days": 3,
+        "trip_focus": "sights_first",
+        "attraction_preference": "第一次来，希望看当地经典热门景点。",
+        "habit_preference": null,
+        "effective_constraints": [
+          {
+            "id": "sh-first-3d-c1",
+            "category": "attraction_preference",
+            "value_text": "第一次来，希望看当地经典热门景点。",
+            "polarity": "prefer",
+            "source": "conversation",
+            "application_level": "preference"
+          }
+        ],
+        "memory_profile_snapshot": []
+      },
+      "expectations": {
+        "eligible_hot": [
+          "sh-bund",
+          "sh-lujiazui",
+          "sh-museum",
+          "sh-museum-east",
+          "sh-nanjingroad",
+          "sh-natural",
+          "sh-oldcity",
+          "sh-pearl",
+          "sh-tower",
+          "sh-wukang",
+          "sh-xintiandi",
+          "sh-yida",
+          "sh-yuyuan",
+          "sh-zhujiajiao"
+        ],
+        "hot_group_target": 4,
+        "acceptable_any_of": [],
+        "must_visit": [],
+        "avoid": [],
+        "interest_tags": [],
+        "max_per_day": null,
+        "earliest_start": null,
+        "manual_checks": "第一次来，希望看当地经典热门景点。",
+        "memory_scope": null
+      },
+      "dialogue": false
+    },
+    {
+      "id": "sh-first-5d",
+      "city": "上海",
+      "scenario": "first-5d",
+      "input": {
+        "query": "2026-10-13开始，上海5日游。第一次来，希望看经典热门，也留时间深入体验。景点为主，餐饮就近即可。",
+        "destination": "上海",
+        "start_date": "2026-10-13",
+        "end_date": "2026-10-17",
+        "days": 5,
+        "trip_focus": "sights_first",
+        "attraction_preference": "第一次来，希望看经典热门，也留时间深入体验。",
+        "habit_preference": null,
+        "effective_constraints": [
+          {
+            "id": "sh-first-5d-c1",
+            "category": "attraction_preference",
+            "value_text": "第一次来，希望看经典热门，也留时间深入体验。",
+            "polarity": "prefer",
+            "source": "conversation",
+            "application_level": "preference"
+          }
+        ],
+        "memory_profile_snapshot": []
+      },
+      "expectations": {
+        "eligible_hot": [
+          "sh-bund",
+          "sh-lujiazui",
+          "sh-museum",
+          "sh-museum-east",
+          "sh-nanjingroad",
+          "sh-natural",
+          "sh-oldcity",
+          "sh-pearl",
+          "sh-tower",
+          "sh-wukang",
+          "sh-xintiandi",
+          "sh-yida",
+          "sh-yuyuan",
+          "sh-zhujiajiao"
+        ],
+        "hot_group_target": 5,
+        "acceptable_any_of": [],
+        "must_visit": [],
+        "avoid": [],
+        "interest_tags": [],
+        "max_per_day": null,
+        "earliest_start": null,
+        "manual_checks": "第一次来，希望看经典热门，也留时间深入体验。",
+        "memory_scope": null
+      },
+      "dialogue": false
+    },
+    {
+      "id": "sh-history",
+      "city": "上海",
+      "scenario": "history",
+      "input": {
+        "query": "2026-10-13开始，上海3日游。喜欢历史和博物馆，希望以当地有代表性的历史景点为主。景点为主，餐饮就近即可。",
+        "destination": "上海",
+        "start_date": "2026-10-13",
+        "end_date": "2026-10-15",
+        "days": 3,
+        "trip_focus": "sights_first",
+        "attraction_preference": "喜欢历史和博物馆，希望以当地有代表性的历史景点为主。",
+        "habit_preference": null,
+        "effective_constraints": [
+          {
+            "id": "sh-history-c1",
+            "category": "attraction_preference",
+            "value_text": "喜欢历史和博物馆，希望以当地有代表性的历史景点为主。",
+            "polarity": "prefer",
+            "source": "conversation",
+            "application_level": "preference"
+          }
+        ],
+        "memory_profile_snapshot": []
+      },
+      "expectations": {
+        "eligible_hot": [
+          "sh-museum",
+          "sh-museum-east",
+          "sh-natural",
+          "sh-oldcity",
+          "sh-yida",
+          "sh-yuyuan",
+          "sh-zhujiajiao"
+        ],
+        "hot_group_target": 3,
+        "acceptable_any_of": [
+          [
+            "sh-museum",
+            "sh-museum-east",
+            "sh-yida"
+          ]
+        ],
+        "must_visit": [],
+        "avoid": [],
+        "interest_tags": [
+          "history",
+          "museum"
+        ],
+        "max_per_day": null,
+        "earliest_start": null,
+        "manual_checks": "喜欢历史和博物馆，希望以当地有代表性的历史景点为主。",
+        "memory_scope": null
+      },
+      "dialogue": false
+    },
+    {
+      "id": "sh-photo",
+      "city": "上海",
+      "scenario": "photo",
+      "input": {
+        "query": "2026-10-13开始，上海3日游。喜欢建筑、街区摄影，想拍当地经典城市景观和夜景。景点为主，餐饮就近即可。",
+        "destination": "上海",
+        "start_date": "2026-10-13",
+        "end_date": "2026-10-15",
+        "days": 3,
+        "trip_focus": "sights_first",
+        "attraction_preference": "喜欢建筑、街区摄影，想拍当地经典城市景观和夜景。",
+        "habit_preference": null,
+        "effective_constraints": [
+          {
+            "id": "sh-photo-c1",
+            "category": "attraction_preference",
+            "value_text": "喜欢建筑、街区摄影，想拍当地经典城市景观和夜景。",
+            "polarity": "prefer",
+            "source": "conversation",
+            "application_level": "preference"
+          }
+        ],
+        "memory_profile_snapshot": []
+      },
+      "expectations": {
+        "eligible_hot": [
+          "sh-bund",
+          "sh-lujiazui",
+          "sh-nanjingroad",
+          "sh-oldcity",
+          "sh-pearl",
+          "sh-tianzifang",
+          "sh-tower",
+          "sh-wukang",
+          "sh-xintiandi",
+          "sh-yuyuan",
+          "sh-zhujiajiao"
+        ],
+        "hot_group_target": 3,
+        "acceptable_any_of": [
+          [
+            "sh-bund",
+            "sh-lujiazui",
+            "sh-wukang"
+          ]
+        ],
+        "must_visit": [],
+        "avoid": [],
+        "interest_tags": [
+          "architecture",
+          "photo"
+        ],
+        "max_per_day": null,
+        "earliest_start": null,
+        "manual_checks": "喜欢建筑、街区摄影，想拍当地经典城市景观和夜景。",
+        "memory_scope": null
+      },
+      "dialogue": false
+    },
+    {
+      "id": "sh-family",
+      "city": "上海",
+      "scenario": "family",
+      "input": {
+        "query": "2026-10-13开始，上海3日游。两位成人带6岁儿童，喜欢动物和科普，每天最多3个景点，避免太累。景点为主，餐饮就近即可。",
+        "destination": "上海",
+        "start_date": "2026-10-13",
+        "end_date": "2026-10-15",
+        "days": 3,
+        "trip_focus": "sights_first",
+        "attraction_preference": "两位成人带6岁儿童，喜欢动物和科普，每天最多3个景点，避免太累。",
+        "habit_preference": "每天最多3个景点",
+        "effective_constraints": [
+          {
+            "id": "sh-family-c1",
+            "category": "attraction_preference",
+            "value_text": "两位成人带6岁儿童，喜欢动物和科普，每天最多3个景点，避免太累。",
+            "polarity": "prefer",
+            "source": "conversation",
+            "application_level": "preference"
+          },
+          {
+            "id": "sh-family-c2",
+            "category": "travel_pace",
+            "value_text": "每天最多3个景点",
+            "polarity": "require",
+            "source": "conversation",
+            "application_level": "hard"
+          }
+        ],
+        "memory_profile_snapshot": []
+      },
+      "expectations": {
+        "eligible_hot": [
+          "sh-disney",
+          "sh-museum",
+          "sh-museum-east",
+          "sh-natural",
+          "sh-pearl",
+          "sh-wildlife"
+        ],
+        "hot_group_target": 3,
+        "acceptable_any_of": [
+          [
+            "sh-natural",
+            "sh-wildlife",
+            "sh-disney"
+          ]
+        ],
+        "must_visit": [],
+        "avoid": [],
+        "interest_tags": [
+          "child"
+        ],
+        "max_per_day": 3,
+        "earliest_start": null,
+        "manual_checks": "两位成人带6岁儿童，喜欢动物和科普，每天最多3个景点，避免太累。",
+        "memory_scope": null
+      },
+      "dialogue": false
+    },
+    {
+      "id": "sh-senior",
+      "city": "上海",
+      "scenario": "senior",
+      "input": {
+        "query": "2026-10-13开始，上海3日游。带70岁长者，少走路，慢节奏，每天最多2个景点，不安排爬山。景点为主，餐饮就近即可。",
+        "destination": "上海",
+        "start_date": "2026-10-13",
+        "end_date": "2026-10-15",
+        "days": 3,
+        "trip_focus": "sights_first",
+        "attraction_preference": "带70岁长者，少走路，慢节奏，每天最多2个景点，不安排爬山。",
+        "habit_preference": "慢节奏，每天最多2个景点",
+        "effective_constraints": [
+          {
+            "id": "sh-senior-c1",
+            "category": "attraction_preference",
+            "value_text": "带70岁长者，少走路，慢节奏，每天最多2个景点，不安排爬山。",
+            "polarity": "prefer",
+            "source": "conversation",
+            "application_level": "preference"
+          },
+          {
+            "id": "sh-senior-c2",
+            "category": "travel_pace",
+            "value_text": "每天最多2个景点",
+            "polarity": "require",
+            "source": "conversation",
+            "application_level": "hard"
+          },
+          {
+            "id": "sh-senior-c3",
+            "category": "accessibility_need",
+            "value_text": "少走路，不安排爬山",
+            "polarity": "require",
+            "source": "conversation",
+            "application_level": "hard"
+          }
+        ],
+        "memory_profile_snapshot": []
+      },
+      "expectations": {
+        "eligible_hot": [
+          "sh-bund",
+          "sh-nanjingroad",
+          "sh-wukang",
+          "sh-xintiandi"
+        ],
+        "hot_group_target": 3,
+        "acceptable_any_of": [],
+        "must_visit": [],
+        "avoid": [],
+        "interest_tags": [
+          "relaxed"
+        ],
+        "max_per_day": 2,
+        "earliest_start": null,
+        "manual_checks": "带70岁长者，少走路，慢节奏，每天最多2个景点，不安排爬山。",
+        "memory_scope": null
+      },
+      "dialogue": false
+    },
+    {
+      "id": "sh-late",
+      "city": "上海",
+      "scenario": "late",
+      "input": {
+        "query": "2026-10-13开始，上海3日游。慢节奏，每天10:30以后开始游玩，每天最多2个景点。景点为主，餐饮就近即可。",
+        "destination": "上海",
+        "start_date": "2026-10-13",
+        "end_date": "2026-10-15",
+        "days": 3,
+        "trip_focus": "sights_first",
+        "attraction_preference": "慢节奏，每天10:30以后开始游玩，每天最多2个景点。",
+        "habit_preference": "慢节奏，10:30以后开始，每天最多2个景点",
+        "effective_constraints": [
+          {
+            "id": "sh-late-c1",
+            "category": "attraction_preference",
+            "value_text": "慢节奏，每天10:30以后开始游玩，每天最多2个景点。",
+            "polarity": "prefer",
+            "source": "conversation",
+            "application_level": "preference"
+          },
+          {
+            "id": "sh-late-c2",
+            "category": "travel_pace",
+            "value_text": "每天最多2个景点",
+            "polarity": "require",
+            "source": "conversation",
+            "application_level": "hard"
+          },
+          {
+            "id": "sh-late-c3",
+            "category": "schedule_preference",
+            "value_text": "每天10:30以后开始游玩",
+            "polarity": "require",
+            "source": "conversation",
+            "application_level": "hard"
+          }
+        ],
+        "memory_profile_snapshot": []
+      },
+      "expectations": {
+        "eligible_hot": [
+          "sh-bund",
+          "sh-nanjingroad",
+          "sh-wukang",
+          "sh-xintiandi"
+        ],
+        "hot_group_target": 3,
+        "acceptable_any_of": [],
+        "must_visit": [],
+        "avoid": [],
+        "interest_tags": [
+          "relaxed"
+        ],
+        "max_per_day": 2,
+        "earliest_start": "10:30",
+        "manual_checks": "慢节奏，每天10:30以后开始游玩，每天最多2个景点。",
+        "memory_scope": null
+      },
+      "dialogue": false
+    },
+    {
+      "id": "sh-must-avoid",
+      "city": "上海",
+      "scenario": "must-avoid",
+      "input": {
+        "query": "2026-10-13开始，上海3日游。必须去外滩、豫园；不去上海迪士尼乐园。景点为主，餐饮就近即可。",
+        "destination": "上海",
+        "start_date": "2026-10-13",
+        "end_date": "2026-10-15",
+        "days": 3,
+        "trip_focus": "sights_first",
+        "attraction_preference": "必须去外滩、豫园；不去上海迪士尼乐园。",
+        "habit_preference": null,
+        "effective_constraints": [
+          {
+            "id": "sh-must-avoid-c1",
+            "category": "attraction_preference",
+            "value_text": "必须去外滩、豫园；不去上海迪士尼乐园。",
+            "polarity": "prefer",
+            "source": "conversation",
+            "application_level": "preference"
+          },
+          {
+            "id": "sh-must-avoid-c2",
+            "category": "attraction_preference",
+            "value_text": "必须去外滩",
+            "polarity": "require",
+            "source": "conversation",
+            "application_level": "hard"
+          },
+          {
+            "id": "sh-must-avoid-c3",
+            "category": "attraction_preference",
+            "value_text": "必须去豫园",
+            "polarity": "require",
+            "source": "conversation",
+            "application_level": "hard"
+          },
+          {
+            "id": "sh-must-avoid-c4",
+            "category": "attraction_preference",
+            "value_text": "不去上海迪士尼乐园",
+            "polarity": "avoid",
+            "source": "conversation",
+            "application_level": "hard"
+          }
+        ],
+        "memory_profile_snapshot": []
+      },
+      "expectations": {
+        "eligible_hot": [
+          "sh-bund",
+          "sh-lujiazui",
+          "sh-museum",
+          "sh-museum-east",
+          "sh-nanjingroad",
+          "sh-natural",
+          "sh-oldcity",
+          "sh-pearl",
+          "sh-tower",
+          "sh-wukang",
+          "sh-xintiandi",
+          "sh-yida",
+          "sh-yuyuan",
+          "sh-zhujiajiao"
+        ],
+        "hot_group_target": 3,
+        "acceptable_any_of": [],
+        "must_visit": [
+          "sh-bund",
+          "sh-yuyuan"
+        ],
+        "avoid": [
+          "sh-disney"
+        ],
+        "interest_tags": [],
+        "max_per_day": null,
+        "earliest_start": null,
+        "manual_checks": "必须去外滩、豫园；不去上海迪士尼乐园。",
+        "memory_scope": null
+      },
+      "dialogue": true
+    },
+    {
+      "id": "sh-repeat",
+      "city": "上海",
+      "scenario": "repeat",
+      "input": {
+        "query": "2026-10-13开始，上海3日游。这次重游，外滩、豫园和南京路已去过，本次不再安排；想看其他有代表性的建筑和街区。景点为主，餐饮就近即可。",
+        "destination": "上海",
+        "start_date": "2026-10-13",
+        "end_date": "2026-10-15",
+        "days": 3,
+        "trip_focus": "sights_first",
+        "attraction_preference": "这次重游，外滩、豫园和南京路已去过，本次不再安排；想看其他有代表性的建筑和街区。",
+        "habit_preference": null,
+        "effective_constraints": [
+          {
+            "id": "sh-repeat-c1",
+            "category": "attraction_preference",
+            "value_text": "这次重游，外滩、豫园和南京路已去过，本次不再安排；想看其他有代表性的建筑和街区。",
+            "polarity": "prefer",
+            "source": "conversation",
+            "application_level": "preference"
+          },
+          {
+            "id": "sh-repeat-c2",
+            "category": "attraction_preference",
+            "value_text": "不去外滩",
+            "polarity": "avoid",
+            "source": "conversation",
+            "application_level": "hard"
+          },
+          {
+            "id": "sh-repeat-c3",
+            "category": "attraction_preference",
+            "value_text": "不去豫园",
+            "polarity": "avoid",
+            "source": "conversation",
+            "application_level": "hard"
+          },
+          {
+            "id": "sh-repeat-c4",
+            "category": "attraction_preference",
+            "value_text": "不去南京路步行街",
+            "polarity": "avoid",
+            "source": "conversation",
+            "application_level": "hard"
+          }
+        ],
+        "memory_profile_snapshot": []
+      },
+      "expectations": {
+        "eligible_hot": [
+          "sh-lujiazui",
+          "sh-oldcity",
+          "sh-pearl",
+          "sh-tianzifang",
+          "sh-tower",
+          "sh-wukang",
+          "sh-xintiandi",
+          "sh-zhujiajiao"
+        ],
+        "hot_group_target": 3,
+        "acceptable_any_of": [],
+        "must_visit": [],
+        "avoid": [
+          "sh-bund",
+          "sh-yuyuan",
+          "sh-nanjingroad"
+        ],
+        "interest_tags": [
+          "architecture"
+        ],
+        "max_per_day": null,
+        "earliest_start": null,
+        "manual_checks": "这次重游，外滩、豫园和南京路已去过，本次不再安排；想看其他有代表性的建筑和街区。",
+        "memory_scope": null
+      },
+      "dialogue": false
+    },
+    {
+      "id": "sh-memory",
+      "city": "上海",
+      "scenario": "memory",
+      "input": {
+        "query": "2026-10-13开始，上海3日游。以前喜欢主题乐园和紧凑旅行，这次改为历史博物馆游，每天最多2个景点，仍然不早起，10:30以后开始，不去主题乐园。景点为主，餐饮就近即可。",
+        "destination": "上海",
+        "start_date": "2026-10-13",
+        "end_date": "2026-10-15",
+        "days": 3,
+        "trip_focus": "sights_first",
+        "attraction_preference": "以前喜欢主题乐园和紧凑旅行，这次改为历史博物馆游，每天最多2个景点，仍然不早起，10:30以后开始，不去主题乐园。",
+        "habit_preference": "慢节奏，10:30以后开始，每天最多2个景点",
+        "effective_constraints": [
+          {
+            "id": "sh-memory-c1",
+            "category": "attraction_preference",
+            "value_text": "以前喜欢主题乐园和紧凑旅行，这次改为历史博物馆游，每天最多2个景点，仍然不早起，10:30以后开始，不去主题乐园。",
+            "polarity": "prefer",
+            "source": "conversation",
+            "application_level": "preference"
+          },
+          {
+            "id": "sh-memory-c2",
+            "category": "attraction_preference",
+            "value_text": "不去上海迪士尼乐园",
+            "polarity": "avoid",
+            "source": "conversation",
+            "application_level": "hard"
+          },
+          {
+            "id": "sh-memory-c3",
+            "category": "travel_pace",
+            "value_text": "每天最多2个景点",
+            "polarity": "require",
+            "source": "conversation",
+            "application_level": "hard"
+          },
+          {
+            "id": "sh-memory-c4",
+            "category": "schedule_preference",
+            "value_text": "每天10:30以后开始游玩",
+            "polarity": "require",
+            "source": "conversation",
+            "application_level": "hard"
+          },
+          {
+            "id": "sh-memory-c5",
+            "category": "attraction_preference",
+            "value_text": "不去主题乐园",
+            "polarity": "avoid",
+            "source": "conversation",
+            "application_level": "hard"
+          }
+        ],
+        "memory_profile_snapshot": [
+          {
+            "category": "attraction_preference",
+            "value_text": "喜欢主题乐园",
+            "polarity": "prefer"
+          },
+          {
+            "category": "travel_pace",
+            "value_text": "喜欢紧凑旅行，每天5个景点",
+            "polarity": "prefer"
+          },
+          {
+            "category": "schedule_preference",
+            "value_text": "不早起，10:30以后开始",
+            "polarity": "prefer"
+          }
+        ]
+      },
+      "expectations": {
+        "eligible_hot": [
+          "sh-museum",
+          "sh-museum-east",
+          "sh-natural",
+          "sh-oldcity",
+          "sh-yida",
+          "sh-yuyuan",
+          "sh-zhujiajiao"
+        ],
+        "hot_group_target": 3,
+        "acceptable_any_of": [
+          [
+            "sh-museum",
+            "sh-museum-east",
+            "sh-yida"
+          ]
+        ],
+        "must_visit": [],
+        "avoid": [
+          "sh-disney"
+        ],
+        "interest_tags": [
+          "history",
+          "museum"
+        ],
+        "max_per_day": 2,
+        "earliest_start": "10:30",
+        "manual_checks": "以前喜欢主题乐园和紧凑旅行，这次改为历史博物馆游，每天最多2个景点，仍然不早起，10:30以后开始，不去主题乐园。",
+        "memory_scope": "主链路验证确认后约束；对话案例另测真实记忆投影"
+      },
+      "dialogue": true
+    },
+    {
+      "id": "nj-first-1d",
+      "city": "南京",
+      "scenario": "first-1d",
+      "input": {
+        "query": "2026-10-13开始，南京1日游。第一次来，希望看当地经典热门景点。景点为主，餐饮就近即可。",
+        "destination": "南京",
+        "start_date": "2026-10-13",
+        "end_date": "2026-10-13",
+        "days": 1,
+        "trip_focus": "sights_first",
+        "attraction_preference": "第一次来，希望看当地经典热门景点。",
+        "habit_preference": null,
+        "effective_constraints": [
+          {
+            "id": "nj-first-1d-c1",
+            "category": "attraction_preference",
+            "value_text": "第一次来，希望看当地经典热门景点。",
+            "polarity": "prefer",
+            "source": "conversation",
+            "application_level": "preference"
+          }
+        ],
+        "memory_profile_snapshot": []
+      },
+      "expectations": {
+        "eligible_hot": [
+          "nj-keju",
+          "nj-laomendong",
+          "nj-ming",
+          "nj-museum",
+          "nj-palace",
+          "nj-qinhuai",
+          "nj-sun",
+          "nj-xuanwu",
+          "nj-zhanyuan",
+          "nj-zhonghuamen",
+          "nj-zhongshan"
+        ],
+        "hot_group_target": 2,
+        "acceptable_any_of": [],
+        "must_visit": [],
+        "avoid": [],
+        "interest_tags": [],
+        "max_per_day": null,
+        "earliest_start": null,
+        "manual_checks": "第一次来，希望看当地经典热门景点。",
+        "memory_scope": null
+      },
+      "dialogue": false
+    },
+    {
+      "id": "nj-first-2d",
+      "city": "南京",
+      "scenario": "first-2d",
+      "input": {
+        "query": "2026-10-13开始，南京2日游。第一次来，希望看当地经典热门景点。景点为主，餐饮就近即可。",
+        "destination": "南京",
+        "start_date": "2026-10-13",
+        "end_date": "2026-10-14",
+        "days": 2,
+        "trip_focus": "sights_first",
+        "attraction_preference": "第一次来，希望看当地经典热门景点。",
+        "habit_preference": null,
+        "effective_constraints": [
+          {
+            "id": "nj-first-2d-c1",
+            "category": "attraction_preference",
+            "value_text": "第一次来，希望看当地经典热门景点。",
+            "polarity": "prefer",
+            "source": "conversation",
+            "application_level": "preference"
+          }
+        ],
+        "memory_profile_snapshot": []
+      },
+      "expectations": {
+        "eligible_hot": [
+          "nj-keju",
+          "nj-laomendong",
+          "nj-ming",
+          "nj-museum",
+          "nj-palace",
+          "nj-qinhuai",
+          "nj-sun",
+          "nj-xuanwu",
+          "nj-zhanyuan",
+          "nj-zhonghuamen",
+          "nj-zhongshan"
+        ],
+        "hot_group_target": 3,
+        "acceptable_any_of": [],
+        "must_visit": [],
+        "avoid": [],
+        "interest_tags": [],
+        "max_per_day": null,
+        "earliest_start": null,
+        "manual_checks": "第一次来，希望看当地经典热门景点。",
+        "memory_scope": null
+      },
+      "dialogue": false
+    },
+    {
+      "id": "nj-first-3d",
+      "city": "南京",
+      "scenario": "first-3d",
+      "input": {
+        "query": "2026-10-13开始，南京3日游。第一次来，希望看当地经典热门景点。景点为主，餐饮就近即可。",
+        "destination": "南京",
+        "start_date": "2026-10-13",
+        "end_date": "2026-10-15",
+        "days": 3,
+        "trip_focus": "sights_first",
+        "attraction_preference": "第一次来，希望看当地经典热门景点。",
+        "habit_preference": null,
+        "effective_constraints": [
+          {
+            "id": "nj-first-3d-c1",
+            "category": "attraction_preference",
+            "value_text": "第一次来，希望看当地经典热门景点。",
+            "polarity": "prefer",
+            "source": "conversation",
+            "application_level": "preference"
+          }
+        ],
+        "memory_profile_snapshot": []
+      },
+      "expectations": {
+        "eligible_hot": [
+          "nj-hongshan",
+          "nj-keju",
+          "nj-laomendong",
+          "nj-memorial",
+          "nj-ming",
+          "nj-museum",
+          "nj-niushou",
+          "nj-palace",
+          "nj-qinhuai",
+          "nj-sun",
+          "nj-xuanwu",
+          "nj-zhanyuan",
+          "nj-zhonghuamen",
+          "nj-zhongshan"
+        ],
+        "hot_group_target": 4,
+        "acceptable_any_of": [],
+        "must_visit": [],
+        "avoid": [],
+        "interest_tags": [],
+        "max_per_day": null,
+        "earliest_start": null,
+        "manual_checks": "第一次来，希望看当地经典热门景点。",
+        "memory_scope": null
+      },
+      "dialogue": false
+    },
+    {
+      "id": "nj-first-5d",
+      "city": "南京",
+      "scenario": "first-5d",
+      "input": {
+        "query": "2026-10-13开始，南京5日游。第一次来，希望看经典热门，也留时间深入体验。景点为主，餐饮就近即可。",
+        "destination": "南京",
+        "start_date": "2026-10-13",
+        "end_date": "2026-10-17",
+        "days": 5,
+        "trip_focus": "sights_first",
+        "attraction_preference": "第一次来，希望看经典热门，也留时间深入体验。",
+        "habit_preference": null,
+        "effective_constraints": [
+          {
+            "id": "nj-first-5d-c1",
+            "category": "attraction_preference",
+            "value_text": "第一次来，希望看经典热门，也留时间深入体验。",
+            "polarity": "prefer",
+            "source": "conversation",
+            "application_level": "preference"
+          }
+        ],
+        "memory_profile_snapshot": []
+      },
+      "expectations": {
+        "eligible_hot": [
+          "nj-hongshan",
+          "nj-keju",
+          "nj-laomendong",
+          "nj-memorial",
+          "nj-ming",
+          "nj-museum",
+          "nj-niushou",
+          "nj-palace",
+          "nj-qinhuai",
+          "nj-sun",
+          "nj-xuanwu",
+          "nj-zhanyuan",
+          "nj-zhonghuamen",
+          "nj-zhongshan"
+        ],
+        "hot_group_target": 5,
+        "acceptable_any_of": [],
+        "must_visit": [],
+        "avoid": [],
+        "interest_tags": [],
+        "max_per_day": null,
+        "earliest_start": null,
+        "manual_checks": "第一次来，希望看经典热门，也留时间深入体验。",
+        "memory_scope": null
+      },
+      "dialogue": false
+    },
+    {
+      "id": "nj-history",
+      "city": "南京",
+      "scenario": "history",
+      "input": {
+        "query": "2026-10-13开始，南京3日游。喜欢历史和博物馆，希望以当地有代表性的历史景点为主。景点为主，餐饮就近即可。",
+        "destination": "南京",
+        "start_date": "2026-10-13",
+        "end_date": "2026-10-15",
+        "days": 3,
+        "trip_focus": "sights_first",
+        "attraction_preference": "喜欢历史和博物馆，希望以当地有代表性的历史景点为主。",
+        "habit_preference": null,
+        "effective_constraints": [
+          {
+            "id": "nj-history-c1",
+            "category": "attraction_preference",
+            "value_text": "喜欢历史和博物馆，希望以当地有代表性的历史景点为主。",
+            "polarity": "prefer",
+            "source": "conversation",
+            "application_level": "preference"
+          }
+        ],
+        "memory_profile_snapshot": []
+      },
+      "expectations": {
+        "eligible_hot": [
+          "nj-keju",
+          "nj-memorial",
+          "nj-ming",
+          "nj-museum",
+          "nj-niushou",
+          "nj-palace",
+          "nj-qinhuai",
+          "nj-sun",
+          "nj-zhanyuan",
+          "nj-zhonghuamen",
+          "nj-zhongshan"
+        ],
+        "hot_group_target": 3,
+        "acceptable_any_of": [
+          [
+            "nj-museum",
+            "nj-palace",
+            "nj-keju",
+            "nj-memorial"
+          ]
+        ],
+        "must_visit": [],
+        "avoid": [],
+        "interest_tags": [
+          "history",
+          "museum"
+        ],
+        "max_per_day": null,
+        "earliest_start": null,
+        "manual_checks": "喜欢历史和博物馆，希望以当地有代表性的历史景点为主。",
+        "memory_scope": null
+      },
+      "dialogue": false
+    },
+    {
+      "id": "nj-photo",
+      "city": "南京",
+      "scenario": "photo",
+      "input": {
+        "query": "2026-10-13开始，南京3日游。喜欢建筑、街区摄影，想拍当地经典城市景观和夜景。景点为主，餐饮就近即可。",
+        "destination": "南京",
+        "start_date": "2026-10-13",
+        "end_date": "2026-10-15",
+        "days": 3,
+        "trip_focus": "sights_first",
+        "attraction_preference": "喜欢建筑、街区摄影，想拍当地经典城市景观和夜景。",
+        "habit_preference": null,
+        "effective_constraints": [
+          {
+            "id": "nj-photo-c1",
+            "category": "attraction_preference",
+            "value_text": "喜欢建筑、街区摄影，想拍当地经典城市景观和夜景。",
+            "polarity": "prefer",
+            "source": "conversation",
+            "application_level": "preference"
+          }
+        ],
+        "memory_profile_snapshot": []
+      },
+      "expectations": {
+        "eligible_hot": [
+          "nj-laomendong",
+          "nj-ming",
+          "nj-niushou",
+          "nj-palace",
+          "nj-qinhuai",
+          "nj-sun",
+          "nj-xuanwu",
+          "nj-zhanyuan",
+          "nj-zhonghuamen",
+          "nj-zhongshan"
+        ],
+        "hot_group_target": 3,
+        "acceptable_any_of": [
+          [
+            "nj-qinhuai",
+            "nj-palace",
+            "nj-niushou",
+            "nj-ming"
+          ]
+        ],
+        "must_visit": [],
+        "avoid": [],
+        "interest_tags": [
+          "architecture",
+          "photo"
+        ],
+        "max_per_day": null,
+        "earliest_start": null,
+        "manual_checks": "喜欢建筑、街区摄影，想拍当地经典城市景观和夜景。",
+        "memory_scope": null
+      },
+      "dialogue": false
+    },
+    {
+      "id": "nj-family",
+      "city": "南京",
+      "scenario": "family",
+      "input": {
+        "query": "2026-10-13开始，南京3日游。两位成人带6岁儿童，喜欢动物和科普，每天最多3个景点，避免太累。景点为主，餐饮就近即可。",
+        "destination": "南京",
+        "start_date": "2026-10-13",
+        "end_date": "2026-10-15",
+        "days": 3,
+        "trip_focus": "sights_first",
+        "attraction_preference": "两位成人带6岁儿童，喜欢动物和科普，每天最多3个景点，避免太累。",
+        "habit_preference": "每天最多3个景点",
+        "effective_constraints": [
+          {
+            "id": "nj-family-c1",
+            "category": "attraction_preference",
+            "value_text": "两位成人带6岁儿童，喜欢动物和科普，每天最多3个景点，避免太累。",
+            "polarity": "prefer",
+            "source": "conversation",
+            "application_level": "preference"
+          },
+          {
+            "id": "nj-family-c2",
+            "category": "travel_pace",
+            "value_text": "每天最多3个景点",
+            "polarity": "require",
+            "source": "conversation",
+            "application_level": "hard"
+          }
+        ],
+        "memory_profile_snapshot": []
+      },
+      "expectations": {
+        "eligible_hot": [
+          "nj-hongshan",
+          "nj-museum"
+        ],
+        "hot_group_target": 2,
+        "acceptable_any_of": [
+          [
+            "nj-hongshan",
+            "nj-museum"
+          ]
+        ],
+        "must_visit": [],
+        "avoid": [],
+        "interest_tags": [
+          "child"
+        ],
+        "max_per_day": 3,
+        "earliest_start": null,
+        "manual_checks": "两位成人带6岁儿童，喜欢动物和科普，每天最多3个景点，避免太累。",
+        "memory_scope": null
+      },
+      "dialogue": false
+    },
+    {
+      "id": "nj-senior",
+      "city": "南京",
+      "scenario": "senior",
+      "input": {
+        "query": "2026-10-13开始，南京3日游。带70岁长者，少走路，慢节奏，每天最多2个景点，不安排爬山。景点为主，餐饮就近即可。",
+        "destination": "南京",
+        "start_date": "2026-10-13",
+        "end_date": "2026-10-15",
+        "days": 3,
+        "trip_focus": "sights_first",
+        "attraction_preference": "带70岁长者，少走路，慢节奏，每天最多2个景点，不安排爬山。",
+        "habit_preference": "慢节奏，每天最多2个景点",
+        "effective_constraints": [
+          {
+            "id": "nj-senior-c1",
+            "category": "attraction_preference",
+            "value_text": "带70岁长者，少走路，慢节奏，每天最多2个景点，不安排爬山。",
+            "polarity": "prefer",
+            "source": "conversation",
+            "application_level": "preference"
+          },
+          {
+            "id": "nj-senior-c2",
+            "category": "travel_pace",
+            "value_text": "每天最多2个景点",
+            "polarity": "require",
+            "source": "conversation",
+            "application_level": "hard"
+          },
+          {
+            "id": "nj-senior-c3",
+            "category": "accessibility_need",
+            "value_text": "少走路，不安排爬山",
+            "polarity": "require",
+            "source": "conversation",
+            "application_level": "hard"
+          }
+        ],
+        "memory_profile_snapshot": []
+      },
+      "expectations": {
+        "eligible_hot": [
+          "nj-laomendong",
+          "nj-xuanwu"
+        ],
+        "hot_group_target": 2,
+        "acceptable_any_of": [],
+        "must_visit": [],
+        "avoid": [],
+        "interest_tags": [
+          "relaxed"
+        ],
+        "max_per_day": 2,
+        "earliest_start": null,
+        "manual_checks": "带70岁长者，少走路，慢节奏，每天最多2个景点，不安排爬山。",
+        "memory_scope": null
+      },
+      "dialogue": false
+    },
+    {
+      "id": "nj-late",
+      "city": "南京",
+      "scenario": "late",
+      "input": {
+        "query": "2026-10-13开始，南京3日游。慢节奏，每天10:30以后开始游玩，每天最多2个景点。景点为主，餐饮就近即可。",
+        "destination": "南京",
+        "start_date": "2026-10-13",
+        "end_date": "2026-10-15",
+        "days": 3,
+        "trip_focus": "sights_first",
+        "attraction_preference": "慢节奏，每天10:30以后开始游玩，每天最多2个景点。",
+        "habit_preference": "慢节奏，10:30以后开始，每天最多2个景点",
+        "effective_constraints": [
+          {
+            "id": "nj-late-c1",
+            "category": "attraction_preference",
+            "value_text": "慢节奏，每天10:30以后开始游玩，每天最多2个景点。",
+            "polarity": "prefer",
+            "source": "conversation",
+            "application_level": "preference"
+          },
+          {
+            "id": "nj-late-c2",
+            "category": "travel_pace",
+            "value_text": "每天最多2个景点",
+            "polarity": "require",
+            "source": "conversation",
+            "application_level": "hard"
+          },
+          {
+            "id": "nj-late-c3",
+            "category": "schedule_preference",
+            "value_text": "每天10:30以后开始游玩",
+            "polarity": "require",
+            "source": "conversation",
+            "application_level": "hard"
+          }
+        ],
+        "memory_profile_snapshot": []
+      },
+      "expectations": {
+        "eligible_hot": [
+          "nj-laomendong",
+          "nj-xuanwu"
+        ],
+        "hot_group_target": 2,
+        "acceptable_any_of": [],
+        "must_visit": [],
+        "avoid": [],
+        "interest_tags": [
+          "relaxed"
+        ],
+        "max_per_day": 2,
+        "earliest_start": "10:30",
+        "manual_checks": "慢节奏，每天10:30以后开始游玩，每天最多2个景点。",
+        "memory_scope": null
+      },
+      "dialogue": false
+    },
+    {
+      "id": "nj-must-avoid",
+      "city": "南京",
+      "scenario": "must-avoid",
+      "input": {
+        "query": "2026-10-13开始，南京3日游。必须去南京博物院、南京总统府；不去牛首山文化旅游区。景点为主，餐饮就近即可。",
+        "destination": "南京",
+        "start_date": "2026-10-13",
+        "end_date": "2026-10-15",
+        "days": 3,
+        "trip_focus": "sights_first",
+        "attraction_preference": "必须去南京博物院、南京总统府；不去牛首山文化旅游区。",
+        "habit_preference": null,
+        "effective_constraints": [
+          {
+            "id": "nj-must-avoid-c1",
+            "category": "attraction_preference",
+            "value_text": "必须去南京博物院、南京总统府；不去牛首山文化旅游区。",
+            "polarity": "prefer",
+            "source": "conversation",
+            "application_level": "preference"
+          },
+          {
+            "id": "nj-must-avoid-c2",
+            "category": "attraction_preference",
+            "value_text": "必须去南京博物院",
+            "polarity": "require",
+            "source": "conversation",
+            "application_level": "hard"
+          },
+          {
+            "id": "nj-must-avoid-c3",
+            "category": "attraction_preference",
+            "value_text": "必须去南京总统府",
+            "polarity": "require",
+            "source": "conversation",
+            "application_level": "hard"
+          },
+          {
+            "id": "nj-must-avoid-c4",
+            "category": "attraction_preference",
+            "value_text": "不去牛首山文化旅游区",
+            "polarity": "avoid",
+            "source": "conversation",
+            "application_level": "hard"
+          }
+        ],
+        "memory_profile_snapshot": []
+      },
+      "expectations": {
+        "eligible_hot": [
+          "nj-hongshan",
+          "nj-keju",
+          "nj-laomendong",
+          "nj-memorial",
+          "nj-ming",
+          "nj-museum",
+          "nj-palace",
+          "nj-qinhuai",
+          "nj-sun",
+          "nj-xuanwu",
+          "nj-zhanyuan",
+          "nj-zhonghuamen",
+          "nj-zhongshan"
+        ],
+        "hot_group_target": 3,
+        "acceptable_any_of": [],
+        "must_visit": [
+          "nj-museum",
+          "nj-palace"
+        ],
+        "avoid": [
+          "nj-niushou"
+        ],
+        "interest_tags": [],
+        "max_per_day": null,
+        "earliest_start": null,
+        "manual_checks": "必须去南京博物院、南京总统府；不去牛首山文化旅游区。",
+        "memory_scope": null
+      },
+      "dialogue": true
+    },
+    {
+      "id": "nj-repeat",
+      "city": "南京",
+      "scenario": "repeat",
+      "input": {
+        "query": "2026-10-13开始，南京3日游。这次重游，夫子庙和中山陵已去过，本次不再安排；想看其他有代表性的景点。景点为主，餐饮就近即可。",
+        "destination": "南京",
+        "start_date": "2026-10-13",
+        "end_date": "2026-10-15",
+        "days": 3,
+        "trip_focus": "sights_first",
+        "attraction_preference": "这次重游，夫子庙和中山陵已去过，本次不再安排；想看其他有代表性的景点。",
+        "habit_preference": null,
+        "effective_constraints": [
+          {
+            "id": "nj-repeat-c1",
+            "category": "attraction_preference",
+            "value_text": "这次重游，夫子庙和中山陵已去过，本次不再安排；想看其他有代表性的景点。",
+            "polarity": "prefer",
+            "source": "conversation",
+            "application_level": "preference"
+          },
+          {
+            "id": "nj-repeat-c2",
+            "category": "attraction_preference",
+            "value_text": "不去夫子庙秦淮风光带",
+            "polarity": "avoid",
+            "source": "conversation",
+            "application_level": "hard"
+          },
+          {
+            "id": "nj-repeat-c3",
+            "category": "attraction_preference",
+            "value_text": "不去中山陵",
+            "polarity": "avoid",
+            "source": "conversation",
+            "application_level": "hard"
+          }
+        ],
+        "memory_profile_snapshot": []
+      },
+      "expectations": {
+        "eligible_hot": [
+          "nj-laomendong",
+          "nj-ming",
+          "nj-niushou",
+          "nj-palace",
+          "nj-zhanyuan",
+          "nj-zhonghuamen"
+        ],
+        "hot_group_target": 3,
+        "acceptable_any_of": [],
+        "must_visit": [],
+        "avoid": [
+          "nj-qinhuai",
+          "nj-sun"
+        ],
+        "interest_tags": [
+          "architecture"
+        ],
+        "max_per_day": null,
+        "earliest_start": null,
+        "manual_checks": "这次重游，夫子庙和中山陵已去过，本次不再安排；想看其他有代表性的景点。",
+        "memory_scope": null
+      },
+      "dialogue": false
+    },
+    {
+      "id": "nj-memory",
+      "city": "南京",
+      "scenario": "memory",
+      "input": {
+        "query": "2026-10-13开始，南京3日游。以前喜欢主题乐园和紧凑旅行，这次改为历史博物馆游，每天最多2个景点，仍然不早起，10:30以后开始，不去主题乐园。景点为主，餐饮就近即可。",
+        "destination": "南京",
+        "start_date": "2026-10-13",
+        "end_date": "2026-10-15",
+        "days": 3,
+        "trip_focus": "sights_first",
+        "attraction_preference": "以前喜欢主题乐园和紧凑旅行，这次改为历史博物馆游，每天最多2个景点，仍然不早起，10:30以后开始，不去主题乐园。",
+        "habit_preference": "慢节奏，10:30以后开始，每天最多2个景点",
+        "effective_constraints": [
+          {
+            "id": "nj-memory-c1",
+            "category": "attraction_preference",
+            "value_text": "以前喜欢主题乐园和紧凑旅行，这次改为历史博物馆游，每天最多2个景点，仍然不早起，10:30以后开始，不去主题乐园。",
+            "polarity": "prefer",
+            "source": "conversation",
+            "application_level": "preference"
+          },
+          {
+            "id": "nj-memory-c2",
+            "category": "travel_pace",
+            "value_text": "每天最多2个景点",
+            "polarity": "require",
+            "source": "conversation",
+            "application_level": "hard"
+          },
+          {
+            "id": "nj-memory-c3",
+            "category": "schedule_preference",
+            "value_text": "每天10:30以后开始游玩",
+            "polarity": "require",
+            "source": "conversation",
+            "application_level": "hard"
+          },
+          {
+            "id": "nj-memory-c4",
+            "category": "attraction_preference",
+            "value_text": "不去主题乐园",
+            "polarity": "avoid",
+            "source": "conversation",
+            "application_level": "hard"
+          }
+        ],
+        "memory_profile_snapshot": [
+          {
+            "category": "attraction_preference",
+            "value_text": "喜欢主题乐园",
+            "polarity": "prefer"
+          },
+          {
+            "category": "travel_pace",
+            "value_text": "喜欢紧凑旅行，每天5个景点",
+            "polarity": "prefer"
+          },
+          {
+            "category": "schedule_preference",
+            "value_text": "不早起，10:30以后开始",
+            "polarity": "prefer"
+          }
+        ]
+      },
+      "expectations": {
+        "eligible_hot": [
+          "nj-keju",
+          "nj-memorial",
+          "nj-ming",
+          "nj-museum",
+          "nj-niushou",
+          "nj-palace",
+          "nj-qinhuai",
+          "nj-sun",
+          "nj-zhanyuan",
+          "nj-zhonghuamen",
+          "nj-zhongshan"
+        ],
+        "hot_group_target": 3,
+        "acceptable_any_of": [
+          [
+            "nj-museum",
+            "nj-palace",
+            "nj-keju",
+            "nj-memorial"
+          ]
+        ],
+        "must_visit": [],
+        "avoid": [],
+        "interest_tags": [
+          "history",
+          "museum"
+        ],
+        "max_per_day": 2,
+        "earliest_start": "10:30",
+        "manual_checks": "以前喜欢主题乐园和紧凑旅行，这次改为历史博物馆游，每天最多2个景点，仍然不早起，10:30以后开始，不去主题乐园。",
+        "memory_scope": "主链路验证确认后约束；对话案例另测真实记忆投影"
+      },
+      "dialogue": true
+    }
+  ]
+}

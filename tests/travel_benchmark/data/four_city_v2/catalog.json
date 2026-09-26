@@ -1,0 +1,2141 @@
+{
+  "version": "four-city-v2",
+  "frozen_on": "2026-09-19",
+  "attractions": [
+    {
+      "id": "sh-bund",
+      "city": "上海",
+      "name": "外滩",
+      "aliases": [
+        "外滩风景区",
+        "外滩滨江"
+      ],
+      "tier": "classic",
+      "tags": [
+        "architecture",
+        "photo",
+        "night",
+        "relaxed"
+      ],
+      "parent_id": null,
+      "duration_minutes": [
+        60,
+        120
+      ],
+      "duration_basis": "Codex评测用参考范围，非官方最低游览时长；压缩需结合请求审阅，不自动判硬失败",
+      "audience": [
+        "一般游客"
+      ],
+      "sources": [
+        "sh-official",
+        "sh-platform"
+      ],
+      "classification_basis": "综合所列来源的城市代表性/主题用途进行编辑分层，非官方排行榜",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "sh-yuyuan",
+      "city": "上海",
+      "name": "豫园",
+      "aliases": [
+        "上海豫园"
+      ],
+      "tier": "classic",
+      "tags": [
+        "history",
+        "architecture"
+      ],
+      "parent_id": "sh-oldcity",
+      "duration_minutes": [
+        90,
+        150
+      ],
+      "duration_basis": "Codex评测用参考范围，非官方最低游览时长；压缩需结合请求审阅，不自动判硬失败",
+      "audience": [
+        "一般游客"
+      ],
+      "sources": [
+        "sh-official",
+        "sh-platform"
+      ],
+      "classification_basis": "综合所列来源的城市代表性/主题用途进行编辑分层，非官方排行榜",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "sh-oldcity",
+      "city": "上海",
+      "name": "豫园城隍庙街区",
+      "aliases": [
+        "城隍庙旅游区",
+        "豫园商城",
+        "上海城隍庙",
+        "上海城隍庙旅游区",
+        "城隍庙"
+      ],
+      "tier": "classic",
+      "tags": [
+        "history",
+        "architecture",
+        "night"
+      ],
+      "parent_id": null,
+      "duration_minutes": [
+        60,
+        120
+      ],
+      "duration_basis": "Codex评测用参考范围，非官方最低游览时长；压缩需结合请求审阅，不自动判硬失败",
+      "audience": [
+        "一般游客"
+      ],
+      "sources": [
+        "sh-official"
+      ],
+      "classification_basis": "综合所列来源的城市代表性/主题用途进行编辑分层，非官方排行榜",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "sh-nanjingroad",
+      "city": "上海",
+      "name": "南京路步行街",
+      "aliases": [
+        "南京东路步行街",
+        "南京路"
+      ],
+      "tier": "classic",
+      "tags": [
+        "architecture",
+        "night",
+        "relaxed"
+      ],
+      "parent_id": null,
+      "duration_minutes": [
+        60,
+        120
+      ],
+      "duration_basis": "Codex评测用参考范围，非官方最低游览时长；压缩需结合请求审阅，不自动判硬失败",
+      "audience": [
+        "一般游客"
+      ],
+      "sources": [
+        "sh-official"
+      ],
+      "classification_basis": "综合所列来源的城市代表性/主题用途进行编辑分层，非官方排行榜",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "sh-lujiazui",
+      "city": "上海",
+      "name": "陆家嘴",
+      "aliases": [
+        "陆家嘴金融城",
+        "陆家嘴中心绿地"
+      ],
+      "tier": "classic",
+      "tags": [
+        "architecture",
+        "photo",
+        "night"
+      ],
+      "parent_id": null,
+      "duration_minutes": [
+        60,
+        120
+      ],
+      "duration_basis": "Codex评测用参考范围，非官方最低游览时长；压缩需结合请求审阅，不自动判硬失败",
+      "audience": [
+        "一般游客"
+      ],
+      "sources": [
+        "sh-platform"
+      ],
+      "classification_basis": "综合所列来源的城市代表性/主题用途进行编辑分层，非官方排行榜",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "sh-pearl",
+      "city": "上海",
+      "name": "东方明珠",
+      "aliases": [
+        "东方明珠广播电视塔",
+        "东方明珠电视塔"
+      ],
+      "tier": "classic",
+      "tags": [
+        "architecture",
+        "photo",
+        "child",
+        "night"
+      ],
+      "parent_id": "sh-lujiazui",
+      "duration_minutes": [
+        120,
+        180
+      ],
+      "duration_basis": "Codex评测用参考范围，非官方最低游览时长；压缩需结合请求审阅，不自动判硬失败",
+      "audience": [
+        "一般游客",
+        "亲子"
+      ],
+      "sources": [
+        "sh-platform"
+      ],
+      "classification_basis": "综合所列来源的城市代表性/主题用途进行编辑分层，非官方排行榜",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "sh-tower",
+      "city": "上海",
+      "name": "上海中心大厦",
+      "aliases": [
+        "上海之巅观光厅",
+        "上海中心"
+      ],
+      "tier": "theme",
+      "tags": [
+        "architecture",
+        "photo",
+        "night"
+      ],
+      "parent_id": "sh-lujiazui",
+      "duration_minutes": [
+        90,
+        150
+      ],
+      "duration_basis": "Codex评测用参考范围，非官方最低游览时长；压缩需结合请求审阅，不自动判硬失败",
+      "audience": [
+        "一般游客"
+      ],
+      "sources": [
+        "sh-platform"
+      ],
+      "classification_basis": "综合所列来源的城市代表性/主题用途进行编辑分层，非官方排行榜",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "sh-museum",
+      "city": "上海",
+      "name": "上海博物馆(人民广场馆)",
+      "aliases": [
+        "上海博物馆",
+        "上海博物馆人民广场馆"
+      ],
+      "tier": "theme",
+      "tags": [
+        "history",
+        "museum",
+        "child"
+      ],
+      "parent_id": null,
+      "duration_minutes": [
+        180,
+        240
+      ],
+      "duration_basis": "Codex评测用参考范围，非官方最低游览时长；压缩需结合请求审阅，不自动判硬失败",
+      "audience": [
+        "一般游客",
+        "亲子"
+      ],
+      "sources": [
+        "sh-official"
+      ],
+      "classification_basis": "综合所列来源的城市代表性/主题用途进行编辑分层，非官方排行榜",
+      "opening": {
+        "start": "09:00",
+        "end": "17:00",
+        "last_entry": "16:00",
+        "closed_weekdays": [
+          0
+        ],
+        "source": "sh-official",
+        "exception": "法定假日及临时公告另核"
+      },
+      "accessibility": "unverified"
+    },
+    {
+      "id": "sh-museum-east",
+      "city": "上海",
+      "name": "上海博物馆东馆",
+      "aliases": [
+        "上海博物馆(东馆)"
+      ],
+      "tier": "theme",
+      "tags": [
+        "history",
+        "museum",
+        "child"
+      ],
+      "parent_id": null,
+      "duration_minutes": [
+        180,
+        240
+      ],
+      "duration_basis": "Codex评测用参考范围，非官方最低游览时长；压缩需结合请求审阅，不自动判硬失败",
+      "audience": [
+        "一般游客",
+        "亲子"
+      ],
+      "sources": [
+        "sh-official"
+      ],
+      "classification_basis": "综合所列来源的城市代表性/主题用途进行编辑分层，非官方排行榜",
+      "opening": {
+        "start": "10:00",
+        "end": "18:00",
+        "last_entry": "17:00",
+        "closed_weekdays": [
+          1
+        ],
+        "source": "sh-official",
+        "exception": "法定假日及临时公告另核"
+      },
+      "accessibility": "unverified"
+    },
+    {
+      "id": "sh-disney",
+      "city": "上海",
+      "name": "上海迪士尼乐园",
+      "aliases": [
+        "上海迪士尼度假区",
+        "迪士尼乐园",
+        "迪士尼"
+      ],
+      "tier": "theme",
+      "tags": [
+        "child",
+        "themepark"
+      ],
+      "parent_id": null,
+      "duration_minutes": [
+        360,
+        600
+      ],
+      "duration_basis": "Codex评测用参考范围，非官方最低游览时长；压缩需结合请求审阅，不自动判硬失败",
+      "audience": [
+        "一般游客",
+        "亲子"
+      ],
+      "sources": [
+        "sh-platform"
+      ],
+      "classification_basis": "综合所列来源的城市代表性/主题用途进行编辑分层，非官方排行榜",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "sh-wildlife",
+      "city": "上海",
+      "name": "上海野生动物园",
+      "aliases": [],
+      "tier": "theme",
+      "tags": [
+        "child",
+        "nature"
+      ],
+      "parent_id": null,
+      "duration_minutes": [
+        240,
+        360
+      ],
+      "duration_basis": "Codex评测用参考范围，非官方最低游览时长；压缩需结合请求审阅，不自动判硬失败",
+      "audience": [
+        "一般游客",
+        "亲子"
+      ],
+      "sources": [
+        "sh-platform"
+      ],
+      "classification_basis": "综合所列来源的城市代表性/主题用途进行编辑分层，非官方排行榜",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "sh-natural",
+      "city": "上海",
+      "name": "上海自然博物馆",
+      "aliases": [
+        "上海自然博物馆(静安新馆)",
+        "上海自然博物馆(新馆)"
+      ],
+      "tier": "theme",
+      "tags": [
+        "child",
+        "museum",
+        "nature"
+      ],
+      "parent_id": null,
+      "duration_minutes": [
+        180,
+        240
+      ],
+      "duration_basis": "Codex评测用参考范围，非官方最低游览时长；压缩需结合请求审阅，不自动判硬失败",
+      "audience": [
+        "一般游客",
+        "亲子"
+      ],
+      "sources": [
+        "sh-mct"
+      ],
+      "classification_basis": "综合所列来源的城市代表性/主题用途进行编辑分层，非官方排行榜",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "sh-xintiandi",
+      "city": "上海",
+      "name": "新天地",
+      "aliases": [
+        "上海新天地",
+        "新天地时尚"
+      ],
+      "tier": "theme",
+      "tags": [
+        "architecture",
+        "photo",
+        "night",
+        "relaxed"
+      ],
+      "parent_id": null,
+      "duration_minutes": [
+        60,
+        120
+      ],
+      "duration_basis": "Codex评测用参考范围，非官方最低游览时长；压缩需结合请求审阅，不自动判硬失败",
+      "audience": [
+        "一般游客"
+      ],
+      "sources": [
+        "sh-official"
+      ],
+      "classification_basis": "综合所列来源的城市代表性/主题用途进行编辑分层，非官方排行榜",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "sh-tianzifang",
+      "city": "上海",
+      "name": "田子坊",
+      "aliases": [],
+      "tier": "theme",
+      "tags": [
+        "architecture",
+        "photo"
+      ],
+      "parent_id": null,
+      "duration_minutes": [
+        60,
+        120
+      ],
+      "duration_basis": "Codex评测用参考范围，非官方最低游览时长；压缩需结合请求审阅，不自动判硬失败",
+      "audience": [
+        "一般游客"
+      ],
+      "sources": [
+        "sh-official"
+      ],
+      "classification_basis": "综合所列来源的城市代表性/主题用途进行编辑分层，非官方排行榜",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "sh-wukang",
+      "city": "上海",
+      "name": "武康路",
+      "aliases": [
+        "武康大楼",
+        "武康路历史文化名街"
+      ],
+      "tier": "theme",
+      "tags": [
+        "architecture",
+        "photo",
+        "relaxed"
+      ],
+      "parent_id": null,
+      "duration_minutes": [
+        60,
+        120
+      ],
+      "duration_basis": "Codex评测用参考范围，非官方最低游览时长；压缩需结合请求审阅，不自动判硬失败",
+      "audience": [
+        "一般游客"
+      ],
+      "sources": [
+        "sh-xuhui"
+      ],
+      "classification_basis": "综合所列来源的城市代表性/主题用途进行编辑分层，非官方排行榜",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "sh-song",
+      "city": "上海",
+      "name": "上海宋庆龄故居纪念馆",
+      "aliases": [
+        "宋庆龄故居"
+      ],
+      "tier": "supplement",
+      "tags": [
+        "history",
+        "museum",
+        "architecture"
+      ],
+      "parent_id": null,
+      "duration_minutes": [
+        60,
+        120
+      ],
+      "duration_basis": "Codex评测用参考范围，非官方最低游览时长；压缩需结合请求审阅，不自动判硬失败",
+      "audience": [
+        "一般游客"
+      ],
+      "sources": [
+        "sh-xuhui"
+      ],
+      "classification_basis": "综合所列来源的城市代表性/主题用途进行编辑分层，非官方排行榜",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "sh-zhujiajiao",
+      "city": "上海",
+      "name": "朱家角古镇",
+      "aliases": [
+        "朱家角古镇景区",
+        "朱家角",
+        "上海朱家角古镇旅游区"
+      ],
+      "tier": "theme",
+      "tags": [
+        "history",
+        "architecture",
+        "photo"
+      ],
+      "parent_id": null,
+      "duration_minutes": [
+        180,
+        300
+      ],
+      "duration_basis": "Codex评测用参考范围，非官方最低游览时长；压缩需结合请求审阅，不自动判硬失败",
+      "audience": [
+        "一般游客"
+      ],
+      "sources": [
+        "sh-zhujiajiao"
+      ],
+      "classification_basis": "综合所列来源的城市代表性/主题用途进行编辑分层，非官方排行榜",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "sh-yida",
+      "city": "上海",
+      "name": "中国共产党第一次全国代表大会会址纪念馆",
+      "aliases": [
+        "中共一大会址",
+        "中共一大纪念馆"
+      ],
+      "tier": "theme",
+      "tags": [
+        "history",
+        "museum"
+      ],
+      "parent_id": null,
+      "duration_minutes": [
+        90,
+        150
+      ],
+      "duration_basis": "Codex评测用参考范围，非官方最低游览时长；压缩需结合请求审阅，不自动判硬失败",
+      "audience": [
+        "一般游客"
+      ],
+      "sources": [
+        "sh-mct"
+      ],
+      "classification_basis": "综合所列来源的城市代表性/主题用途进行编辑分层，非官方排行榜",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "nj-qinhuai",
+      "city": "南京",
+      "name": "夫子庙秦淮风光带",
+      "aliases": [
+        "夫子庙",
+        "夫子庙秦淮河风光带",
+        "夫子庙-秦淮风光带",
+        "秦淮河",
+        "夫子庙大成殿",
+        "夫子庙步行街",
+        "南京夫子庙"
+      ],
+      "tier": "classic",
+      "tags": [
+        "history",
+        "architecture",
+        "photo",
+        "night"
+      ],
+      "parent_id": null,
+      "duration_minutes": [
+        90,
+        180
+      ],
+      "duration_basis": "Codex评测用参考范围，非官方最低游览时长；压缩需结合请求审阅，不自动判硬失败",
+      "audience": [
+        "一般游客"
+      ],
+      "sources": [
+        "nj-traffic",
+        "nj-platform"
+      ],
+      "classification_basis": "综合所列来源的城市代表性/主题用途进行编辑分层，非官方排行榜",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "nj-zhongshan",
+      "city": "南京",
+      "name": "钟山风景名胜区",
+      "aliases": [
+        "钟山风景区",
+        "紫金山风景区"
+      ],
+      "tier": "classic",
+      "tags": [
+        "history",
+        "nature",
+        "photo"
+      ],
+      "parent_id": null,
+      "duration_minutes": [
+        180,
+        360
+      ],
+      "duration_basis": "Codex评测用参考范围，非官方最低游览时长；压缩需结合请求审阅，不自动判硬失败",
+      "audience": [
+        "一般游客"
+      ],
+      "sources": [
+        "nj-traffic",
+        "nj-platform"
+      ],
+      "classification_basis": "综合所列来源的城市代表性/主题用途进行编辑分层，非官方排行榜",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "nj-sun",
+      "city": "南京",
+      "name": "中山陵",
+      "aliases": [
+        "中山陵景区",
+        "中山陵园风景区"
+      ],
+      "tier": "classic",
+      "tags": [
+        "history",
+        "architecture"
+      ],
+      "parent_id": "nj-zhongshan",
+      "duration_minutes": [
+        120,
+        180
+      ],
+      "duration_basis": "Codex评测用参考范围，非官方最低游览时长；压缩需结合请求审阅，不自动判硬失败",
+      "audience": [
+        "一般游客"
+      ],
+      "sources": [
+        "nj-platform",
+        "nj-group"
+      ],
+      "classification_basis": "综合所列来源的城市代表性/主题用途进行编辑分层，非官方排行榜",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "nj-ming",
+      "city": "南京",
+      "name": "明孝陵",
+      "aliases": [
+        "明孝陵景区"
+      ],
+      "tier": "classic",
+      "tags": [
+        "history",
+        "architecture",
+        "photo"
+      ],
+      "parent_id": "nj-zhongshan",
+      "duration_minutes": [
+        120,
+        180
+      ],
+      "duration_basis": "Codex评测用参考范围，非官方最低游览时长；压缩需结合请求审阅，不自动判硬失败",
+      "audience": [
+        "一般游客"
+      ],
+      "sources": [
+        "nj-platform",
+        "nj-group"
+      ],
+      "classification_basis": "综合所列来源的城市代表性/主题用途进行编辑分层，非官方排行榜",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "nj-xuanwu",
+      "city": "南京",
+      "name": "玄武湖",
+      "aliases": [
+        "玄武湖景区",
+        "玄武湖公园"
+      ],
+      "tier": "classic",
+      "tags": [
+        "nature",
+        "photo",
+        "relaxed"
+      ],
+      "parent_id": null,
+      "duration_minutes": [
+        90,
+        180
+      ],
+      "duration_basis": "Codex评测用参考范围，非官方最低游览时长；压缩需结合请求审阅，不自动判硬失败",
+      "audience": [
+        "一般游客"
+      ],
+      "sources": [
+        "nj-traffic"
+      ],
+      "classification_basis": "综合所列来源的城市代表性/主题用途进行编辑分层，非官方排行榜",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "nj-palace",
+      "city": "南京",
+      "name": "南京总统府",
+      "aliases": [
+        "总统府",
+        "南京中国近代史遗址博物馆"
+      ],
+      "tier": "classic",
+      "tags": [
+        "history",
+        "museum",
+        "architecture"
+      ],
+      "parent_id": null,
+      "duration_minutes": [
+        120,
+        180
+      ],
+      "duration_basis": "Codex评测用参考范围，非官方最低游览时长；压缩需结合请求审阅，不自动判硬失败",
+      "audience": [
+        "一般游客"
+      ],
+      "sources": [
+        "nj-official",
+        "nj-platform"
+      ],
+      "classification_basis": "综合所列来源的城市代表性/主题用途进行编辑分层，非官方排行榜",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "nj-museum",
+      "city": "南京",
+      "name": "南京博物院",
+      "aliases": [
+        "南博"
+      ],
+      "tier": "classic",
+      "tags": [
+        "history",
+        "museum",
+        "child"
+      ],
+      "parent_id": null,
+      "duration_minutes": [
+        180,
+        240
+      ],
+      "duration_basis": "Codex评测用参考范围，非官方最低游览时长；压缩需结合请求审阅，不自动判硬失败",
+      "audience": [
+        "一般游客",
+        "亲子"
+      ],
+      "sources": [
+        "nj-official",
+        "nj-platform",
+        "nj-museum"
+      ],
+      "classification_basis": "综合所列来源的城市代表性/主题用途进行编辑分层，非官方排行榜",
+      "opening": {
+        "start": "09:00",
+        "end": "17:00",
+        "closed_weekdays": [
+          0
+        ],
+        "source": "nj-museum",
+        "exception": "法定假日及临时公告另核"
+      },
+      "accessibility": "unverified"
+    },
+    {
+      "id": "nj-hongshan",
+      "city": "南京",
+      "name": "红山森林动物园",
+      "aliases": [
+        "南京市红山森林动物园",
+        "南京红山森林动物园",
+        "红山动物园"
+      ],
+      "tier": "theme",
+      "tags": [
+        "child",
+        "nature"
+      ],
+      "parent_id": null,
+      "duration_minutes": [
+        240,
+        360
+      ],
+      "duration_basis": "Codex评测用参考范围，非官方最低游览时长；压缩需结合请求审阅，不自动判硬失败",
+      "audience": [
+        "一般游客",
+        "亲子"
+      ],
+      "sources": [
+        "nj-traffic",
+        "nj-platform"
+      ],
+      "classification_basis": "综合所列来源的城市代表性/主题用途进行编辑分层，非官方排行榜",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "nj-niushou",
+      "city": "南京",
+      "name": "牛首山文化旅游区",
+      "aliases": [
+        "牛首山",
+        "牛首山风景区",
+        "南京牛首山文化旅游区"
+      ],
+      "tier": "theme",
+      "tags": [
+        "architecture",
+        "photo",
+        "history"
+      ],
+      "parent_id": null,
+      "duration_minutes": [
+        180,
+        300
+      ],
+      "duration_basis": "Codex评测用参考范围，非官方最低游览时长；压缩需结合请求审阅，不自动判硬失败",
+      "audience": [
+        "一般游客"
+      ],
+      "sources": [
+        "nj-traffic",
+        "nj-platform"
+      ],
+      "classification_basis": "综合所列来源的城市代表性/主题用途进行编辑分层，非官方排行榜",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "nj-laomendong",
+      "city": "南京",
+      "name": "老门东",
+      "aliases": [
+        "门东历史文化街区",
+        "老门东历史街区",
+        "老门东-步行街"
+      ],
+      "tier": "theme",
+      "tags": [
+        "architecture",
+        "photo",
+        "night",
+        "relaxed"
+      ],
+      "parent_id": "nj-qinhuai",
+      "duration_minutes": [
+        60,
+        120
+      ],
+      "duration_basis": "Codex评测用参考范围，非官方最低游览时长；压缩需结合请求审阅，不自动判硬失败",
+      "audience": [
+        "一般游客"
+      ],
+      "sources": [
+        "nj-group"
+      ],
+      "classification_basis": "综合所列来源的城市代表性/主题用途进行编辑分层，非官方排行榜",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "nj-zhanyuan",
+      "city": "南京",
+      "name": "瞻园",
+      "aliases": [
+        "太平天国历史博物馆"
+      ],
+      "tier": "theme",
+      "tags": [
+        "history",
+        "architecture"
+      ],
+      "parent_id": "nj-qinhuai",
+      "duration_minutes": [
+        90,
+        150
+      ],
+      "duration_basis": "Codex评测用参考范围，非官方最低游览时长；压缩需结合请求审阅，不自动判硬失败",
+      "audience": [
+        "一般游客"
+      ],
+      "sources": [
+        "nj-group"
+      ],
+      "classification_basis": "综合所列来源的城市代表性/主题用途进行编辑分层，非官方排行榜",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "nj-keju",
+      "city": "南京",
+      "name": "南京中国科举博物馆",
+      "aliases": [
+        "江南贡院",
+        "中国科举博物馆",
+        "中国科举博物馆(江南贡院)"
+      ],
+      "tier": "theme",
+      "tags": [
+        "history",
+        "museum"
+      ],
+      "parent_id": "nj-qinhuai",
+      "duration_minutes": [
+        90,
+        150
+      ],
+      "duration_basis": "Codex评测用参考范围，非官方最低游览时长；压缩需结合请求审阅，不自动判硬失败",
+      "audience": [
+        "一般游客"
+      ],
+      "sources": [
+        "nj-group"
+      ],
+      "classification_basis": "综合所列来源的城市代表性/主题用途进行编辑分层，非官方排行榜",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "nj-zhonghuamen",
+      "city": "南京",
+      "name": "中华门瓮城",
+      "aliases": [
+        "中华门城堡",
+        "中华门景区"
+      ],
+      "tier": "theme",
+      "tags": [
+        "history",
+        "architecture"
+      ],
+      "parent_id": "nj-qinhuai",
+      "duration_minutes": [
+        60,
+        120
+      ],
+      "duration_basis": "Codex评测用参考范围，非官方最低游览时长；压缩需结合请求审阅，不自动判硬失败",
+      "audience": [
+        "一般游客"
+      ],
+      "sources": [
+        "nj-group"
+      ],
+      "classification_basis": "综合所列来源的城市代表性/主题用途进行编辑分层，非官方排行榜",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "nj-linggu",
+      "city": "南京",
+      "name": "灵谷景区",
+      "aliases": [
+        "灵谷寺",
+        "灵谷寺景区"
+      ],
+      "tier": "supplement",
+      "tags": [
+        "history",
+        "nature"
+      ],
+      "parent_id": "nj-zhongshan",
+      "duration_minutes": [
+        90,
+        150
+      ],
+      "duration_basis": "Codex评测用参考范围，非官方最低游览时长；压缩需结合请求审阅，不自动判硬失败",
+      "audience": [
+        "一般游客"
+      ],
+      "sources": [
+        "nj-group"
+      ],
+      "classification_basis": "综合所列来源的城市代表性/主题用途进行编辑分层，非官方排行榜",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "nj-memorial",
+      "city": "南京",
+      "name": "侵华日军南京大屠杀遇难同胞纪念馆",
+      "aliases": [
+        "南京大屠杀遇难同胞纪念馆",
+        "南京大屠杀纪念馆"
+      ],
+      "tier": "theme",
+      "tags": [
+        "history",
+        "museum"
+      ],
+      "parent_id": null,
+      "duration_minutes": [
+        120,
+        180
+      ],
+      "duration_basis": "Codex评测用参考范围，非官方最低游览时长；压缩需结合请求审阅，不自动判硬失败",
+      "audience": [
+        "一般游客"
+      ],
+      "sources": [
+        "nj-official"
+      ],
+      "classification_basis": "综合所列来源的城市代表性/主题用途进行编辑分层，非官方排行榜",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "bj-palace",
+      "city": "北京",
+      "name": "故宫博物院",
+      "aliases": [
+        "故宫",
+        "北京故宫"
+      ],
+      "tier": "classic",
+      "tags": [
+        "history",
+        "museum",
+        "architecture"
+      ],
+      "parent_id": null,
+      "duration_minutes": [
+        180,
+        300
+      ],
+      "duration_basis": "编辑参考范围，不作为自动硬失败依据",
+      "audience": [
+        "一般游客"
+      ],
+      "sources": [
+        "bj-palace",
+        "bj-platform"
+      ],
+      "classification_basis": "官方代表性、主题用途及所列平台热度综合编辑判断；不是官方排名",
+      "opening": {
+        "start": "08:30",
+        "end": "17:00",
+        "last_entry": "16:00",
+        "closed_weekdays": [
+          0
+        ],
+        "source": "bj-palace",
+        "valid_for": "2026-10-13~2026-10-17"
+      },
+      "accessibility": "unverified",
+      "reservation": "需要预约，余量及临时公告待核实"
+    },
+    {
+      "id": "bj-national",
+      "city": "北京",
+      "name": "中国国家博物馆",
+      "aliases": [
+        "国家博物馆",
+        "国博"
+      ],
+      "tier": "classic",
+      "tags": [
+        "history",
+        "museum",
+        "child"
+      ],
+      "parent_id": null,
+      "duration_minutes": [
+        180,
+        300
+      ],
+      "duration_basis": "编辑参考范围，不作为自动硬失败依据",
+      "audience": [
+        "一般游客"
+      ],
+      "sources": [
+        "bj-national",
+        "bj-platform"
+      ],
+      "classification_basis": "官方代表性、主题用途及所列平台热度综合编辑判断；不是官方排名",
+      "opening": {
+        "start": "09:00",
+        "end": "17:30",
+        "last_entry": "16:30",
+        "closed_weekdays": [
+          0
+        ],
+        "source": "bj-national",
+        "valid_for": "2026-10-13~2026-10-17"
+      },
+      "accessibility": "unverified",
+      "reservation": "需要预约，余量及临时公告待核实"
+    },
+    {
+      "id": "bj-temple",
+      "city": "北京",
+      "name": "天坛公园",
+      "aliases": [
+        "天坛",
+        "天坛公园景区"
+      ],
+      "tier": "classic",
+      "tags": [
+        "history",
+        "architecture",
+        "photo"
+      ],
+      "parent_id": null,
+      "duration_minutes": [
+        120,
+        180
+      ],
+      "duration_basis": "编辑参考范围，不作为自动硬失败依据",
+      "audience": [
+        "一般游客"
+      ],
+      "sources": [
+        "bj-parks",
+        "bj-platform"
+      ],
+      "classification_basis": "官方代表性、主题用途及所列平台热度综合编辑判断；不是官方排名",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "bj-summer",
+      "city": "北京",
+      "name": "颐和园",
+      "aliases": [
+        "颐和园景区"
+      ],
+      "tier": "classic",
+      "tags": [
+        "history",
+        "architecture",
+        "photo"
+      ],
+      "parent_id": null,
+      "duration_minutes": [
+        180,
+        300
+      ],
+      "duration_basis": "编辑参考范围，不作为自动硬失败依据",
+      "audience": [
+        "一般游客"
+      ],
+      "sources": [
+        "bj-parks",
+        "bj-platform"
+      ],
+      "classification_basis": "官方代表性、主题用途及所列平台热度综合编辑判断；不是官方排名",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "bj-wall",
+      "city": "北京",
+      "name": "八达岭长城",
+      "aliases": [
+        "八达岭长城景区",
+        "八达岭长城旅游区"
+      ],
+      "tier": "classic",
+      "tags": [
+        "history",
+        "photo",
+        "high_fatigue"
+      ],
+      "parent_id": null,
+      "duration_minutes": [
+        180,
+        300
+      ],
+      "duration_basis": "编辑参考范围，不作为自动硬失败依据",
+      "audience": [
+        "一般游客"
+      ],
+      "sources": [
+        "bj-list",
+        "bj-platform"
+      ],
+      "classification_basis": "官方代表性、主题用途及所列平台热度综合编辑判断；不是官方排名",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "bj-mutianyu",
+      "city": "北京",
+      "name": "慕田峪长城",
+      "aliases": [
+        "慕田峪长城景区"
+      ],
+      "tier": "theme",
+      "tags": [
+        "history",
+        "photo",
+        "high_fatigue"
+      ],
+      "parent_id": null,
+      "duration_minutes": [
+        180,
+        300
+      ],
+      "duration_basis": "编辑参考范围，不作为自动硬失败依据",
+      "audience": [
+        "一般游客"
+      ],
+      "sources": [
+        "bj-platform"
+      ],
+      "classification_basis": "官方代表性、主题用途及所列平台热度综合编辑判断；不是官方排名",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "bj-tiananmen",
+      "city": "北京",
+      "name": "天安门广场",
+      "aliases": [
+        "北京天安门广场"
+      ],
+      "tier": "classic",
+      "tags": [
+        "history",
+        "architecture",
+        "photo"
+      ],
+      "parent_id": null,
+      "duration_minutes": [
+        60,
+        90
+      ],
+      "duration_basis": "编辑参考范围，不作为自动硬失败依据",
+      "audience": [
+        "一般游客"
+      ],
+      "sources": [
+        "bj-flow"
+      ],
+      "classification_basis": "官方代表性、主题用途及所列平台热度综合编辑判断；不是官方排名",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "bj-qianmen",
+      "city": "北京",
+      "name": "前门大街",
+      "aliases": [
+        "前门步行街"
+      ],
+      "tier": "classic",
+      "tags": [
+        "architecture",
+        "photo",
+        "relaxed"
+      ],
+      "parent_id": null,
+      "duration_minutes": [
+        60,
+        120
+      ],
+      "duration_basis": "编辑参考范围，不作为自动硬失败依据",
+      "audience": [
+        "一般游客"
+      ],
+      "sources": [
+        "bj-flow"
+      ],
+      "classification_basis": "官方代表性、主题用途及所列平台热度综合编辑判断；不是官方排名",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "bj-shichahai",
+      "city": "北京",
+      "name": "什刹海",
+      "aliases": [
+        "什刹海风景区",
+        "什刹海景区",
+        "后海"
+      ],
+      "tier": "classic",
+      "tags": [
+        "architecture",
+        "photo",
+        "night",
+        "relaxed"
+      ],
+      "parent_id": null,
+      "duration_minutes": [
+        90,
+        150
+      ],
+      "duration_basis": "编辑参考范围，不作为自动硬失败依据",
+      "audience": [
+        "一般游客"
+      ],
+      "sources": [
+        "bj-flow"
+      ],
+      "classification_basis": "官方代表性、主题用途及所列平台热度综合编辑判断；不是官方排名",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "bj-gong",
+      "city": "北京",
+      "name": "恭王府",
+      "aliases": [
+        "恭王府博物馆",
+        "恭王府景区"
+      ],
+      "tier": "theme",
+      "tags": [
+        "history",
+        "museum",
+        "architecture"
+      ],
+      "parent_id": null,
+      "duration_minutes": [
+        120,
+        180
+      ],
+      "duration_basis": "编辑参考范围，不作为自动硬失败依据",
+      "audience": [
+        "一般游客"
+      ],
+      "sources": [
+        "bj-platform",
+        "bj-list"
+      ],
+      "classification_basis": "官方代表性、主题用途及所列平台热度综合编辑判断；不是官方排名",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "bj-jingshan",
+      "city": "北京",
+      "name": "景山公园",
+      "aliases": [
+        "北京景山公园"
+      ],
+      "tier": "theme",
+      "tags": [
+        "history",
+        "photo",
+        "high_fatigue"
+      ],
+      "parent_id": null,
+      "duration_minutes": [
+        60,
+        120
+      ],
+      "duration_basis": "编辑参考范围，不作为自动硬失败依据",
+      "audience": [
+        "一般游客"
+      ],
+      "sources": [
+        "bj-parks"
+      ],
+      "classification_basis": "官方代表性、主题用途及所列平台热度综合编辑判断；不是官方排名",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "bj-beihai",
+      "city": "北京",
+      "name": "北海公园",
+      "aliases": [
+        "北京北海公园"
+      ],
+      "tier": "theme",
+      "tags": [
+        "history",
+        "architecture",
+        "relaxed"
+      ],
+      "parent_id": null,
+      "duration_minutes": [
+        90,
+        180
+      ],
+      "duration_basis": "编辑参考范围，不作为自动硬失败依据",
+      "audience": [
+        "一般游客"
+      ],
+      "sources": [
+        "bj-parks"
+      ],
+      "classification_basis": "官方代表性、主题用途及所列平台热度综合编辑判断；不是官方排名",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "bj-zoo",
+      "city": "北京",
+      "name": "北京动物园",
+      "aliases": [
+        "北京动物园景区"
+      ],
+      "tier": "theme",
+      "tags": [
+        "child",
+        "nature"
+      ],
+      "parent_id": null,
+      "duration_minutes": [
+        180,
+        240
+      ],
+      "duration_basis": "编辑参考范围，不作为自动硬失败依据",
+      "audience": [
+        "一般游客"
+      ],
+      "sources": [
+        "bj-parks"
+      ],
+      "classification_basis": "官方代表性、主题用途及所列平台热度综合编辑判断；不是官方排名",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "bj-universal",
+      "city": "北京",
+      "name": "北京环球度假区",
+      "aliases": [
+        "北京环球影城",
+        "环球影城",
+        "环球度假区"
+      ],
+      "tier": "theme",
+      "tags": [
+        "child",
+        "themepark"
+      ],
+      "parent_id": null,
+      "duration_minutes": [
+        360,
+        600
+      ],
+      "duration_basis": "编辑参考范围，不作为自动硬失败依据",
+      "audience": [
+        "一般游客"
+      ],
+      "sources": [
+        "bj-platform"
+      ],
+      "classification_basis": "官方代表性、主题用途及所列平台热度综合编辑判断；不是官方排名",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "bj-wangfujing",
+      "city": "北京",
+      "name": "王府井步行街",
+      "aliases": [
+        "王府井",
+        "王府井大街"
+      ],
+      "tier": "theme",
+      "tags": [
+        "architecture",
+        "night",
+        "relaxed"
+      ],
+      "parent_id": null,
+      "duration_minutes": [
+        60,
+        120
+      ],
+      "duration_basis": "编辑参考范围，不作为自动硬失败依据",
+      "audience": [
+        "一般游客"
+      ],
+      "sources": [
+        "bj-flow"
+      ],
+      "classification_basis": "官方代表性、主题用途及所列平台热度综合编辑判断；不是官方排名",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "bj-olympic",
+      "city": "北京",
+      "name": "北京奥林匹克公园",
+      "aliases": [
+        "奥林匹克公园",
+        "奥林匹克中心区"
+      ],
+      "tier": "theme",
+      "tags": [
+        "architecture",
+        "photo",
+        "child"
+      ],
+      "parent_id": null,
+      "duration_minutes": [
+        90,
+        150
+      ],
+      "duration_basis": "编辑参考范围，不作为自动硬失败依据",
+      "audience": [
+        "一般游客"
+      ],
+      "sources": [
+        "bj-flow",
+        "bj-list"
+      ],
+      "classification_basis": "官方代表性、主题用途及所列平台热度综合编辑判断；不是官方排名",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "bj-nanluo",
+      "city": "北京",
+      "name": "南锣鼓巷",
+      "aliases": [
+        "南锣鼓巷街区"
+      ],
+      "tier": "theme",
+      "tags": [
+        "architecture",
+        "photo",
+        "relaxed"
+      ],
+      "parent_id": null,
+      "duration_minutes": [
+        60,
+        120
+      ],
+      "duration_basis": "编辑参考范围，不作为自动硬失败依据",
+      "audience": [
+        "一般游客"
+      ],
+      "sources": [
+        "bj-flow"
+      ],
+      "classification_basis": "官方代表性、主题用途及所列平台热度综合编辑判断；不是官方排名",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "bj-yuanming",
+      "city": "北京",
+      "name": "圆明园遗址公园",
+      "aliases": [
+        "圆明园",
+        "圆明园景区"
+      ],
+      "tier": "theme",
+      "tags": [
+        "history",
+        "architecture"
+      ],
+      "parent_id": null,
+      "duration_minutes": [
+        150,
+        240
+      ],
+      "duration_basis": "编辑参考范围，不作为自动硬失败依据",
+      "audience": [
+        "一般游客"
+      ],
+      "sources": [
+        "bj-list"
+      ],
+      "classification_basis": "官方代表性、主题用途及所列平台热度综合编辑判断；不是官方排名",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "cq-hongya",
+      "city": "重庆",
+      "name": "洪崖洞民俗风貌区",
+      "aliases": [
+        "洪崖洞",
+        "重庆洪崖洞"
+      ],
+      "tier": "classic",
+      "tags": [
+        "architecture",
+        "photo",
+        "night"
+      ],
+      "parent_id": null,
+      "duration_minutes": [
+        60,
+        120
+      ],
+      "duration_basis": "编辑参考范围，不作为自动硬失败依据",
+      "audience": [
+        "一般游客"
+      ],
+      "sources": [
+        "cq-flow",
+        "cq-platform"
+      ],
+      "classification_basis": "官方代表性、主题用途及所列平台热度综合编辑判断；不是官方排名",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "cq-jiefangbei",
+      "city": "重庆",
+      "name": "解放碑步行街",
+      "aliases": [
+        "解放碑",
+        "解放碑商圈",
+        "解放碑中央商务区"
+      ],
+      "tier": "classic",
+      "tags": [
+        "architecture",
+        "photo",
+        "night",
+        "relaxed"
+      ],
+      "parent_id": null,
+      "duration_minutes": [
+        60,
+        120
+      ],
+      "duration_basis": "编辑参考范围，不作为自动硬失败依据",
+      "audience": [
+        "一般游客"
+      ],
+      "sources": [
+        "cq-platform",
+        "cq-city"
+      ],
+      "classification_basis": "官方代表性、主题用途及所列平台热度综合编辑判断；不是官方排名",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "cq-ciqikou",
+      "city": "重庆",
+      "name": "磁器口古镇",
+      "aliases": [
+        "磁器口",
+        "重庆磁器口古镇"
+      ],
+      "tier": "classic",
+      "tags": [
+        "history",
+        "architecture",
+        "photo"
+      ],
+      "parent_id": null,
+      "duration_minutes": [
+        120,
+        180
+      ],
+      "duration_basis": "编辑参考范围，不作为自动硬失败依据",
+      "audience": [
+        "一般游客"
+      ],
+      "sources": [
+        "cq-flow"
+      ],
+      "classification_basis": "官方代表性、主题用途及所列平台热度综合编辑判断；不是官方排名",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "cq-museum",
+      "city": "重庆",
+      "name": "重庆中国三峡博物馆",
+      "aliases": [
+        "三峡博物馆",
+        "重庆三峡博物馆",
+        "重庆博物馆"
+      ],
+      "tier": "classic",
+      "tags": [
+        "history",
+        "museum",
+        "child",
+        "relaxed"
+      ],
+      "parent_id": null,
+      "duration_minutes": [
+        120,
+        180
+      ],
+      "duration_basis": "编辑参考范围，不作为自动硬失败依据",
+      "audience": [
+        "一般游客"
+      ],
+      "sources": [
+        "cq-museum"
+      ],
+      "classification_basis": "官方代表性、主题用途及所列平台热度综合编辑判断；不是官方排名",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "cq-liziba",
+      "city": "重庆",
+      "name": "李子坝轻轨站",
+      "aliases": [
+        "李子坝轻轨穿楼",
+        "李子坝轻轨穿楼观景平台",
+        "李子坝观景平台"
+      ],
+      "tier": "classic",
+      "tags": [
+        "architecture",
+        "photo",
+        "child"
+      ],
+      "parent_id": null,
+      "duration_minutes": [
+        30,
+        60
+      ],
+      "duration_basis": "编辑参考范围，不作为自动硬失败依据",
+      "audience": [
+        "一般游客"
+      ],
+      "sources": [
+        "cq-city"
+      ],
+      "classification_basis": "官方代表性、主题用途及所列平台热度综合编辑判断；不是官方排名",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "cq-chaotianmen",
+      "city": "重庆",
+      "name": "朝天门广场",
+      "aliases": [
+        "朝天门",
+        "重庆朝天门"
+      ],
+      "tier": "classic",
+      "tags": [
+        "architecture",
+        "photo",
+        "night",
+        "relaxed"
+      ],
+      "parent_id": null,
+      "duration_minutes": [
+        60,
+        90
+      ],
+      "duration_basis": "编辑参考范围，不作为自动硬失败依据",
+      "audience": [
+        "一般游客"
+      ],
+      "sources": [
+        "cq-city"
+      ],
+      "classification_basis": "官方代表性、主题用途及所列平台热度综合编辑判断；不是官方排名",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "cq-zoo",
+      "city": "重庆",
+      "name": "重庆动物园",
+      "aliases": [
+        "重庆市动物园"
+      ],
+      "tier": "theme",
+      "tags": [
+        "child",
+        "nature"
+      ],
+      "parent_id": null,
+      "duration_minutes": [
+        150,
+        240
+      ],
+      "duration_basis": "编辑参考范围，不作为自动硬失败依据",
+      "audience": [
+        "一般游客"
+      ],
+      "sources": [
+        "cq-platform"
+      ],
+      "classification_basis": "官方代表性、主题用途及所列平台热度综合编辑判断；不是官方排名",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "cq-cable",
+      "city": "重庆",
+      "name": "长江索道",
+      "aliases": [
+        "重庆长江索道"
+      ],
+      "tier": "theme",
+      "tags": [
+        "photo",
+        "child",
+        "night"
+      ],
+      "parent_id": null,
+      "duration_minutes": [
+        60,
+        90
+      ],
+      "duration_basis": "编辑参考范围，不作为自动硬失败依据",
+      "audience": [
+        "一般游客"
+      ],
+      "sources": [
+        "cq-platform"
+      ],
+      "classification_basis": "官方代表性、主题用途及所列平台热度综合编辑判断；不是官方排名",
+      "opening": null,
+      "accessibility": "unverified",
+      "availability": "平台采集日显示即将恢复营业，旅行日期营业状态须核实；不作为必去"
+    },
+    {
+      "id": "cq-hall",
+      "city": "重庆",
+      "name": "重庆市人民大礼堂",
+      "aliases": [
+        "人民大礼堂",
+        "重庆人民大礼堂"
+      ],
+      "tier": "theme",
+      "tags": [
+        "history",
+        "architecture",
+        "photo",
+        "relaxed"
+      ],
+      "parent_id": null,
+      "duration_minutes": [
+        60,
+        90
+      ],
+      "duration_basis": "编辑参考范围，不作为自动硬失败依据",
+      "audience": [
+        "一般游客"
+      ],
+      "sources": [
+        "cq-museum",
+        "cq-city"
+      ],
+      "classification_basis": "官方代表性、主题用途及所列平台热度综合编辑判断；不是官方排名",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "cq-eling",
+      "city": "重庆",
+      "name": "鹅岭公园",
+      "aliases": [
+        "鹅岭"
+      ],
+      "tier": "theme",
+      "tags": [
+        "photo",
+        "architecture",
+        "high_fatigue"
+      ],
+      "parent_id": null,
+      "duration_minutes": [
+        60,
+        120
+      ],
+      "duration_basis": "编辑参考范围，不作为自动硬失败依据",
+      "audience": [
+        "一般游客"
+      ],
+      "sources": [
+        "cq-city"
+      ],
+      "classification_basis": "官方代表性、主题用途及所列平台热度综合编辑判断；不是官方排名",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "cq-factory",
+      "city": "重庆",
+      "name": "鹅岭贰厂",
+      "aliases": [
+        "鹅岭二厂",
+        "贰厂文创公园",
+        "二厂文创公园"
+      ],
+      "tier": "theme",
+      "tags": [
+        "architecture",
+        "photo"
+      ],
+      "parent_id": null,
+      "duration_minutes": [
+        60,
+        120
+      ],
+      "duration_basis": "编辑参考范围，不作为自动硬失败依据",
+      "audience": [
+        "一般游客"
+      ],
+      "sources": [
+        "cq-city"
+      ],
+      "classification_basis": "官方代表性、主题用途及所列平台热度综合编辑判断；不是官方排名",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "cq-shancheng",
+      "city": "重庆",
+      "name": "山城巷传统风貌区",
+      "aliases": [
+        "山城巷",
+        "山城步道",
+        "山城巷步道"
+      ],
+      "tier": "theme",
+      "tags": [
+        "history",
+        "architecture",
+        "photo",
+        "high_fatigue"
+      ],
+      "parent_id": null,
+      "duration_minutes": [
+        60,
+        120
+      ],
+      "duration_basis": "编辑参考范围，不作为自动硬失败依据",
+      "audience": [
+        "一般游客"
+      ],
+      "sources": [
+        "cq-city"
+      ],
+      "classification_basis": "官方代表性、主题用途及所列平台热度综合编辑判断；不是官方排名",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "cq-longmen",
+      "city": "重庆",
+      "name": "龙门浩老街",
+      "aliases": [
+        "重庆龙门浩老街"
+      ],
+      "tier": "theme",
+      "tags": [
+        "history",
+        "architecture",
+        "photo",
+        "night"
+      ],
+      "parent_id": null,
+      "duration_minutes": [
+        90,
+        150
+      ],
+      "duration_basis": "编辑参考范围，不作为自动硬失败依据",
+      "audience": [
+        "一般游客"
+      ],
+      "sources": [
+        "cq-planning"
+      ],
+      "classification_basis": "官方代表性、主题用途及所列平台热度综合编辑判断；不是官方排名",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "cq-danzishi",
+      "city": "重庆",
+      "name": "弹子石老街",
+      "aliases": [
+        "长嘉汇弹子石老街"
+      ],
+      "tier": "theme",
+      "tags": [
+        "architecture",
+        "photo",
+        "night"
+      ],
+      "parent_id": null,
+      "duration_minutes": [
+        90,
+        150
+      ],
+      "duration_basis": "编辑参考范围，不作为自动硬失败依据",
+      "audience": [
+        "一般游客"
+      ],
+      "sources": [
+        "cq-planning"
+      ],
+      "classification_basis": "官方代表性、主题用途及所列平台热度综合编辑判断；不是官方排名",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "cq-hongyan",
+      "city": "重庆",
+      "name": "红岩革命纪念馆",
+      "aliases": [
+        "红岩纪念馆"
+      ],
+      "tier": "theme",
+      "tags": [
+        "history",
+        "museum"
+      ],
+      "parent_id": null,
+      "duration_minutes": [
+        90,
+        150
+      ],
+      "duration_basis": "编辑参考范围，不作为自动硬失败依据",
+      "audience": [
+        "一般游客"
+      ],
+      "sources": [
+        "cq-planning"
+      ],
+      "classification_basis": "官方代表性、主题用途及所列平台热度综合编辑判断；不是官方排名",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "cq-dazu",
+      "city": "重庆",
+      "name": "大足石刻",
+      "aliases": [
+        "大足石刻景区",
+        "大足石刻宝顶山景区"
+      ],
+      "tier": "theme",
+      "tags": [
+        "history",
+        "architecture",
+        "high_fatigue"
+      ],
+      "parent_id": null,
+      "duration_minutes": [
+        180,
+        300
+      ],
+      "duration_basis": "编辑参考范围，不作为自动硬失败依据",
+      "audience": [
+        "一般游客"
+      ],
+      "sources": [
+        "cq-platform"
+      ],
+      "classification_basis": "官方代表性、主题用途及所列平台热度综合编辑判断；不是官方排名",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "cq-wulong",
+      "city": "重庆",
+      "name": "武隆天生三桥",
+      "aliases": [
+        "天生三桥",
+        "武隆天生三桥景区",
+        "天生三硚"
+      ],
+      "tier": "theme",
+      "tags": [
+        "nature",
+        "high_fatigue"
+      ],
+      "parent_id": null,
+      "duration_minutes": [
+        180,
+        300
+      ],
+      "duration_basis": "编辑参考范围，不作为自动硬失败依据",
+      "audience": [
+        "一般游客"
+      ],
+      "sources": [
+        "cq-platform",
+        "cq-flow"
+      ],
+      "classification_basis": "官方代表性、主题用途及所列平台热度综合编辑判断；不是官方排名",
+      "opening": null,
+      "accessibility": "unverified"
+    },
+    {
+      "id": "cq-happy",
+      "city": "重庆",
+      "name": "重庆欢乐谷",
+      "aliases": [
+        "欢乐谷"
+      ],
+      "tier": "theme",
+      "tags": [
+        "child",
+        "themepark"
+      ],
+      "parent_id": null,
+      "duration_minutes": [
+        300,
+        480
+      ],
+      "duration_basis": "编辑参考范围，不作为自动硬失败依据",
+      "audience": [
+        "一般游客"
+      ],
+      "sources": [
+        "cq-planning"
+      ],
+      "classification_basis": "官方代表性、主题用途及所列平台热度综合编辑判断；不是官方排名",
+      "opening": null,
+      "accessibility": "unverified"
+    }
+  ],
+  "matching_policy": "仅明确别名或受限的入口/内部点位后缀匹配；未知不认定冷门；内部点不得满足指定父景区的完整游览要求；同一父景区热门覆盖只计一次。"
+}

@@ -1,0 +1,128 @@
+{
+  "sh-official": {
+    "url": "https://www.shanghai.gov.cn/huangpu/index.html",
+    "title": "上海市政府：黄浦经典地标及上海博物馆开放信息",
+    "retrieved_on": "2026-09-19",
+    "evidence_summary": "官方城市名片支持经典性，不当作客流排名。"
+  },
+  "sh-platform": {
+    "url": "https://you.ctrip.com/sight/2.html",
+    "title": "携程上海景点榜",
+    "retrieved_on": "2026-09-19",
+    "evidence_summary": "交叉核查外滩、豫园、东方明珠、迪士尼、上海中心、野生动物园的热度和主题。"
+  },
+  "sh-xuhui": {
+    "url": "https://www.shanghai.gov.cn/xuhui/index.html",
+    "title": "上海市政府：徐汇文旅",
+    "retrieved_on": "2026-09-19",
+    "evidence_summary": "武康大楼和宋庆龄故居的文化与建筑主题依据。"
+  },
+  "sh-zhujiajiao": {
+    "url": "https://www.shanghai.gov.cn/fygz/20260625/09beddb4cff345ba80b159c409cad101.html",
+    "title": "上海市政府：朱家角古镇",
+    "retrieved_on": "2026-09-19",
+    "evidence_summary": "古镇整体与放生桥等内部点位区分。"
+  },
+  "sh-mct": {
+    "url": "https://zwgk.mct.gov.cn/zfxxgkml/scgl/202307/P020230704641107350841.pdf",
+    "title": "文旅部：上海导游知识范围",
+    "retrieved_on": "2026-09-19",
+    "evidence_summary": "自然博物馆等主题目的地依据；非热度排行榜。"
+  },
+  "nj-traffic": {
+    "url": "https://gaj.nanjing.gov.cn/jtgl/202604/t20260430_5832898.html",
+    "title": "南京公安：2026年清明景区客流与五一交通",
+    "retrieved_on": "2026-09-19",
+    "evidence_summary": "夫子庙秦淮、钟山、玄武湖、红山和牛首山客流支持热门判断。"
+  },
+  "nj-platform": {
+    "url": "https://you.ctrip.com/sight/nanjing9.html",
+    "title": "携程南京景点榜",
+    "retrieved_on": "2026-09-19",
+    "evidence_summary": "交叉核查牛首山、明孝陵、总统府、钟山、红山、南博、夫子庙、中山陵；不外推全城固定排名。"
+  },
+  "nj-official": {
+    "url": "https://www.nanjing.gov.cn/zgnjsjb/jrtt/202407/t20240704_4706024.html",
+    "title": "南京市政府：热门景区场馆服务",
+    "retrieved_on": "2026-09-19",
+    "evidence_summary": "支持南博、总统府、纪念馆等热门性，2024年预约政策不作为当前硬限制。"
+  },
+  "nj-group": {
+    "url": "https://www.nanjing.gov.cn/zzb/hdhy/hygq_72666/202208/t20220829_3684096.html",
+    "title": "南京市政府：景区组成",
+    "retrieved_on": "2026-09-19",
+    "evidence_summary": "钟山与秦淮风光带的父子景区关系。"
+  },
+  "nj-museum": {
+    "url": "https://visitnanjing.net/venues-detail/35",
+    "title": "南京旅游：南京博物院",
+    "retrieved_on": "2026-09-19",
+    "evidence_summary": "开放周二至周日9至17时；最终出行仍需查临时公告。"
+  },
+  "bj-platform": {
+    "url": "https://you.ctrip.com/sight/beijing1.html",
+    "title": "北京游客景点榜",
+    "retrieved_on": "2026-09-19",
+    "evidence_summary": "平台热度交叉来源；不使用评分作为唯一热门依据。"
+  },
+  "bj-parks": {
+    "url": "https://www.beijing.gov.cn/fuwu/bmfw/sy/jrts/202608/t20260802_4804802.html",
+    "title": "北京市政府公园客流",
+    "retrieved_on": "2026-09-19",
+    "evidence_summary": "支持颐和园、天坛、景山、北海、动物园主题热度。"
+  },
+  "bj-flow": {
+    "url": "https://whlyj.beijing.gov.cn/zwgk/xwzx/gzdt/202602/t20260224_4536274.html",
+    "title": "北京春节景区接待量",
+    "retrieved_on": "2026-09-19",
+    "evidence_summary": "支持王府井、奥林匹克公园、天安门、前门、什刹海、南锣鼓巷代表性。"
+  },
+  "bj-list": {
+    "url": "https://whlyj.beijing.gov.cn/ggfw/ly/202511/t20251119_4287815.html",
+    "title": "北京文旅景区目录",
+    "retrieved_on": "2026-09-19",
+    "evidence_summary": "景区实体及评级佐证，不等于客流排名。"
+  },
+  "bj-palace": {
+    "url": "https://intl.dpm.org.cn/visit",
+    "title": "故宫参观须知",
+    "retrieved_on": "2026-09-19",
+    "evidence_summary": "10月08:30–17:00，16:00停止入场；通常周一闭馆，需预约。"
+  },
+  "bj-national": {
+    "url": "https://pcticket.chnmuseum.cn/museum-en/",
+    "title": "国家博物馆预约须知",
+    "retrieved_on": "2026-09-19",
+    "evidence_summary": "10月09:00–17:30，16:30停止入馆；通常周一闭馆，预约余量未知。"
+  },
+  "cq-platform": {
+    "url": "https://you.ctrip.com/sight/Chongqing158.html",
+    "title": "重庆游客景点榜",
+    "retrieved_on": "2026-09-19",
+    "evidence_summary": "交叉支持洪崖洞、动物园、武隆、长江索道、大足、解放碑；索道恢复时间不能预设。"
+  },
+  "cq-flow": {
+    "url": "https://cq.gov.cn/zwgk/zfxxgkml/zdlyxxgk/ggwh/ly/zxdt/202606/t20260622_15768361.html",
+    "title": "重庆端午景区客流",
+    "retrieved_on": "2026-09-19",
+    "evidence_summary": "洪崖洞、磁器口、武隆接待量居前。"
+  },
+  "cq-city": {
+    "url": "https://www.cq.gov.cn/ywdt/jrcq/202602/t20260211_15418408.html",
+    "title": "重庆热门片区交通组织",
+    "retrieved_on": "2026-09-19",
+    "evidence_summary": "解放碑、洪崖洞、朝天门、鹅岭贰厂、李子坝、山城巷、大礼堂的目的地佐证。"
+  },
+  "cq-museum": {
+    "url": "https://www.cq.gov.cn/zjcq/bywh/whss/bwg/202606/t20260604_15728868.html",
+    "title": "重庆中国三峡博物馆介绍",
+    "retrieved_on": "2026-09-19",
+    "evidence_summary": "历史文化与年观众规模；与大礼堂相邻但为独立参观内容。"
+  },
+  "cq-planning": {
+    "url": "https://whlyw.cq.gov.cn/zwgk_221/fdzdgknr/ghxx/202204/W020220704589782223875.pdf",
+    "title": "重庆文旅规划",
+    "retrieved_on": "2026-09-19",
+    "evidence_summary": "红岩联线、龙门浩、弹子石等文化片区佐证，非近期人气排名。"
+  }
+}

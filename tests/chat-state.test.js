@@ -492,6 +492,7 @@ test("keeps legacy retry runs out of the activity timeline", () => {
 test("chooses safe structured controls with a text fallback", () => {
   assert.equal(ChatState.interactionInputKind({
     question: "请补充 start_date、end_date",
+    missing_fields: ["start_date", "end_date"],
     input_schema: { type: "string" },
   }), "date-range");
   assert.equal(ChatState.interactionInputKind({
@@ -523,4 +524,80 @@ test("builds a ready brief summary with explicit defaults", () => {
   assert.equal(view.dateLabel, "2026-10-01 — 2026-10-05");
   assert.equal(view.usesDefaults, true);
   assert.deepEqual(view.preferences, [["餐饮", "清淡"]]);
+});
+
+test("completed duration uses persisted execution times across history restores", () => {
+  const run = {status:"succeeded",created_at:"2026-09-05T10:00:00Z",started_at:"2026-09-05T10:00:10Z",finished_at:"2026-09-05T10:02:15Z"};
+  assert.equal(ChatState.runElapsedSeconds(run, Date.parse("2026-09-19T10:00:00Z")),125);
+  assert.equal(ChatState.runElapsedSeconds(run, Date.parse("2026-10-19T10:00:00Z")),125);
+  assert.equal(ChatState.formatRunDuration(125),"2分5秒");
+});
+
+test("terminal events freeze elapsed time before the final run fetch returns", () => {
+  let state=ChatState.initialState();
+  state.runs.r={id:"r",status:"running",started_at:"2026-09-05T10:00:00Z"};
+  state=ChatState.applyEvent(state,"r",{kind:"custom",sequence:1,created_at:"2026-09-05T10:01:00Z",payload:{kind:"run.status",status:"succeeded"}});
+  state=ChatState.applyEvent(state,"r",{kind:"end",sequence:2,created_at:"2026-09-05T10:01:02Z",payload:{status:"succeeded"}});
+  assert.equal(ChatState.runElapsedSeconds(state.runs.r, Date.parse("2026-09-19T10:00:00Z")),60);
+});
+
+test("missing or invalid terminal timestamps never count until today", () => {
+  for (const status of ["succeeded","failed","cancelled"]) {
+    assert.equal(ChatState.runElapsedSeconds({status,created_at:"2026-09-05T10:00:00Z",finished_at:"bad"}),null);
+  }
+  assert.equal(ChatState.runElapsedSeconds({status:"succeeded",started_at:"bad",created_at:"2026-09-05T10:00:00Z",finished_at:"2026-09-05T10:00:05Z"}),5);
+  assert.equal(ChatState.formatRunDuration(null),"");
+});
+
+test("running clock advances and waiting clock uses the pause timestamp", () => {
+  const run={status:"running",started_at:"2026-09-05T10:00:00Z",updated_at:"2026-09-05T10:00:30Z"};
+  assert.equal(ChatState.runElapsedSeconds(run,Date.parse("2026-09-05T10:00:45Z")),45);
+  assert.equal(ChatState.runElapsedSeconds({...run,status:"waiting_user"},Date.parse("2026-09-19T10:00:00Z")),30);
+});
+
+test("references select exact versions even with identical destination and dates", () => {
+  const base = {destination:"南京",start_date:"2026-09-06",end_date:"2026-09-08"};
+  const first = ChatState.itineraryReference({...base,id:"first",version:1});
+  const revised = ChatState.itineraryReference({...base,itinerary_id:"revision",version:2});
+  assert.equal(first.title, "南京 · 3日");
+  assert.match(revised.label, /V2/);
+  assert.equal(ChatState.itineraryMessage("第二天轻松一点", revised, "other-open-plan").related_itinerary_id, "revision");
+  assert.equal(ChatState.itineraryMessage("几点出发？", first).related_itinerary_id, "first");
+  assert.match(ChatState.itineraryMessage("第二天轻松一点", revised).content, /^@南京 · 3日.*V2\n第二天轻松一点$/);
+  assert.deepEqual(ChatState.itineraryMessage("普通聊天", null, null), {content:"普通聊天"});
+  assert.equal(ChatState.itineraryMessage("继续聊", null, "open-plan").related_itinerary_id, "open-plan");
+});
+
+test("mention query respects caret, Chinese input, email and selection boundaries", () => {
+  assert.deepEqual(ChatState.itineraryMentionQuery("看看@南京 后面的文字", 5), {start:2,end:5,query:"南京"});
+  assert.deepEqual(ChatState.itineraryMentionQuery("@", 1), {start:0,end:1,query:""});
+  assert.equal(ChatState.itineraryMentionQuery("hi@example.com", 14), null);
+  assert.equal(ChatState.itineraryMentionQuery("@南京 今天", 6), null);
+  assert.deepEqual(ChatState.itineraryMentionQuery("@南京 @苏州", 7), {start:4,end:7,query:"苏州"});
+});
+
+
+test("unselected @ text must not silently target the open itinerary", () => {
+  assert.equal(ChatState.hasUnresolvedItineraryMention("请看看@南京 第二天"), true);
+  assert.equal(ChatState.hasUnresolvedItineraryMention("@"), true);
+  assert.equal(ChatState.hasUnresolvedItineraryMention("联系 hi@example.com"), false);
+  assert.equal(ChatState.hasUnresolvedItineraryMention("第二天轻松一点"), false);
+});
+
+
+test("clarification uses declared fields and validates serialized replies", () => {
+  assert.equal(ChatState.interactionInputKind({question:"这个日期想吃什么？"}), "text");
+  assert.equal(ChatState.interactionInputKind({input_schema:{enum:[{}, 1]}}), "text");
+  const dates={missing_fields:["start_date","end_date"]};
+  assert.throws(()=>ChatState.interactionAnswer(dates,{start:"2026-10-02",end:"2026-10-01"}), /结束日期/);
+  assert.equal(ChatState.interactionAnswer(dates,{start:"2026-10-01",end:"2026-10-03"}), "开始日期：2026-10-01；结束日期：2026-10-03");
+  assert.equal(ChatState.interactionAnswer({input_schema:{type:"array",items:{enum:["美食","人文"]}}},{choices:["人文","伪造选项"]}), "人文");
+  assert.throws(()=>ChatState.interactionAnswer({}, {text:" "}), /请填写/);
+  assert.doesNotMatch(ChatState.interactionQuestion({question:"候选池未收录用户点名景点"}), /候选池|用户点名/);
+});
+
+
+test("single end date and invalid calendar dates are handled explicitly", () => {
+  assert.equal(ChatState.interactionAnswer({missing_fields:["end_date"],input_schema:{format:"date"}}, {end:"2026-10-03"}), "结束日期：2026-10-03");
+  assert.throws(()=>ChatState.interactionAnswer({input_schema:{format:"date-range"}}, {start:"2026-02-31",end:"2026-03-05"}), /有效/);
 });

@@ -16,6 +16,7 @@ except ImportError:  # pragma: no cover - exercised only before dependencies ins
     cp_model = None  # type: ignore[assignment]
 
 from app.planning.helpers import haversine_km
+from app.planning.day_themes import build_day_theme
 from app.planning.scoring import ScoringProfile, evaluate_itinerary, load_scoring_profile
 from app.planning.schemas import (
     OptimizerCandidate,
@@ -153,14 +154,14 @@ def parse_open_interval(value: str | None) -> tuple[int, int] | None:
 
 def _allowed_start_bounds(candidate: Mapping[str, Any]) -> tuple[int, int] | None:
     duration = int(candidate["duration_min"])
-    lower, upper = DAY_START, DAY_END - duration
+    lower, upper = max(DAY_START, candidate.get("earliest_start_min") or DAY_START), DAY_END - duration
     opening = parse_open_interval(candidate.get("open_time"))
     if opening:
         lower = max(lower, opening[0])
         upper = min(upper, opening[1] - duration)
     fixed = candidate.get("fixed_start_min")
     if fixed is not None:
-        lower = upper = int(fixed)
+        lower, upper = max(lower, int(fixed)), min(upper, int(fixed))
     return (lower, upper) if lower <= upper else None
 
 
@@ -178,6 +179,15 @@ def _closed_on_date(open_time: str | None, visit_date: date | None) -> bool:
         and any(token in clause for token in ("闭馆", "不开放", "休息"))
         for clause in clauses
     )
+
+
+def _start_intervals(candidate, visit_date):
+    from app.planning.reliability import available_starts
+    intervals = available_starts(candidate, visit_date, DAY_START, DAY_END)
+    if intervals is not None:
+        return intervals
+    bounds = _allowed_start_bounds(candidate)
+    return [bounds] if bounds and not _closed_on_date(candidate.get('open_time'), visit_date) else []
 
 
 def _scene_overlap(scene: str, start: int, end: int) -> str | None:
@@ -210,18 +220,21 @@ def _earliest_schedule(
 ) -> list[tuple[int, int]] | None:
     schedule: list[tuple[int, int]] = []
     cursor = DAY_START
+    previous = None
     for candidate in ordered:
-        if _closed_on_date(candidate.get("open_time"), visit_date):
+        if previous is not None:
+            allowed = previous.get('allowed_transfer_names')
+            if allowed is not None and candidate['poi_name'] not in allowed:
+                return None
+            cursor += max(TRANSFER_MIN, previous.get("transfer_minutes_to", {}).get(candidate["poi_name"], TRANSFER_MIN))
+        feasible = [max(cursor, lo) for lo, hi in _start_intervals(candidate, visit_date) if max(cursor, lo) <= hi]
+        if not feasible:
             return None
-        bounds = _allowed_start_bounds(candidate)
-        if bounds is None:
-            return None
-        start = max(cursor, bounds[0])
-        if start > bounds[1]:
-            return None
+        start = min(feasible)
         end = start + int(candidate["duration_min"])
         schedule.append((start, end))
-        cursor = end + TRANSFER_MIN
+        cursor = end
+        previous = candidate
     return schedule
 
 
@@ -278,10 +291,12 @@ class AttractionSubsetOptimizer:
         *,
         max_time_seconds: float = DEFAULT_SOLVER_SECONDS,
         random_seed: int = DEFAULT_RANDOM_SEED,
+        consistent_objective: bool = False,
     ) -> None:
         self.profile = load_scoring_profile(profile_version)
         self.max_time_seconds = max_time_seconds
         self.random_seed = random_seed
+        self.consistent_objective = consistent_objective
 
     def solve(
         self,
@@ -375,7 +390,11 @@ class AttractionSubsetOptimizer:
             daily_count = sum(x[index, day] for index in range(count))
             model.Add(daily_count >= pace.minimum)
             model.Add(daily_count <= pace.maximum)
-            objective_terms.append(daily_count * int(round(self.profile.rewards.daily_target_fill * scale)))
+            rewarded_count = daily_count
+            if self.consistent_objective:
+                rewarded_count = model.NewIntVar(0, pace.target, f"rewarded_count_{day}")
+                model.AddMinEquality(rewarded_count, [daily_count, pace.target])
+            objective_terms.append(rewarded_count * int(round(self.profile.rewards.daily_target_fill * scale)))
 
             # Open path via AddCircuit: end -> start is fixed and unselected POIs
             # take their self loops.  All other active arcs form one day route.
@@ -406,18 +425,26 @@ class AttractionSubsetOptimizer:
                     model.Add(arcs[i, -2, day] == x[i, day])
 
             for i, candidate in enumerate(candidates):
-                bounds = _allowed_start_bounds(candidate.model_dump())
                 visit_date = travel_start_date + timedelta(days=day) if travel_start_date else None
-                if bounds is None or _closed_on_date(candidate.open_time, visit_date):
+                intervals = _start_intervals(candidate.model_dump(), visit_date)
+                if not intervals:
                     model.Add(x[i, day] == 0)
                     lower, upper = DAY_START, DAY_START
                 else:
-                    lower, upper = bounds
+                    lower, upper = intervals[0][0], intervals[-1][1]
                 start_var = model.NewIntVar(DAY_START, DAY_END, f"start_{i}_{day}")
                 starts[i, day] = start_var
                 model.Add(start_var >= lower).OnlyEnforceIf(x[i, day])
                 model.Add(start_var <= upper).OnlyEnforceIf(x[i, day])
                 model.Add(start_var == DAY_START).OnlyEnforceIf(x[i, day].Not())
+                if len(intervals) > 1:
+                    slots = []
+                    for slot, (lo, hi) in enumerate(intervals):
+                        active = model.NewBoolVar(f'opening_{i}_{day}_{slot}')
+                        model.Add(start_var >= lo).OnlyEnforceIf(active)
+                        model.Add(start_var <= hi).OnlyEnforceIf(active)
+                        slots.append(active)
+                    model.Add(sum(slots) == x[i, day])
                 duration = candidate.duration_min
 
                 for meal, window in (("lunch", LUNCH_WINDOW), ("dinner", DINNER_WINDOW)):
@@ -451,6 +478,16 @@ class AttractionSubsetOptimizer:
                     }[preferred]
                     model.Add(start_var >= lower_period).OnlyEnforceIf(preferred_match)
                     model.Add(start_var <= upper_period).OnlyEnforceIf(preferred_match)
+                    if self.consistent_objective:
+                        # FEASIBLE solutions must have the same score as the actual
+                        # route, not rely on maximization to tighten one-way flags.
+                        early = model.NewBoolVar(f"period_early_{i}_{day}")
+                        late = model.NewBoolVar(f"period_late_{i}_{day}")
+                        model.Add(start_var < lower_period).OnlyEnforceIf(early)
+                        model.Add(start_var >= lower_period).OnlyEnforceIf(early.Not())
+                        model.Add(start_var > upper_period).OnlyEnforceIf(late)
+                        model.Add(start_var <= upper_period).OnlyEnforceIf(late.Not())
+                        model.AddBoolOr([x[i, day].Not(), early, late, preferred_match])
                 objective_terms.append(
                     (x[i, day] - preferred_match)
                     * -int(round(self.profile.penalties.preferred_period_miss * scale))
@@ -465,8 +502,10 @@ class AttractionSubsetOptimizer:
                     if i == j:
                         continue
                     arc = arcs[i, j, day]
+                    if left.allowed_transfer_names is not None and right.poi_name not in left.allowed_transfer_names:
+                        model.Add(arc == 0)
                     model.Add(
-                        starts[j, day] >= starts[i, day] + left.duration_min + TRANSFER_MIN
+                        starts[j, day] >= starts[i, day] + left.duration_min + max(TRANSFER_MIN, left.transfer_minutes_to.get(right.poi_name, TRANSFER_MIN))
                     ).OnlyEnforceIf(arc)
                     distance_units = int(round(haversine_km(left.location, right.location) * 10))
                     distance_coeff = int(round(self.profile.penalties.distance_per_km * scale / 10))
@@ -484,7 +523,7 @@ class AttractionSubsetOptimizer:
                     wait = model.NewIntVar(0, DAY_END - DAY_START, f"wait_{i}_{j}_{day}")
                     model.Add(wait == 0).OnlyEnforceIf(arc.Not())
                     model.Add(
-                        wait == starts[j, day] - starts[i, day] - left.duration_min - TRANSFER_MIN
+                        wait == starts[j, day] - starts[i, day] - left.duration_min - max(TRANSFER_MIN, left.transfer_minutes_to.get(right.poi_name, TRANSFER_MIN))
                     ).OnlyEnforceIf(arc)
                     wait_coeff = int(round(self.profile.penalties.waiting_per_hour * scale / 60))
                     objective_terms.append(wait * -wait_coeff)
@@ -566,7 +605,7 @@ class AttractionSubsetOptimizer:
                     None,
                 )
                 spots.append(self._spot(candidates[i], start, end, meal_coverage))
-            route.append({"day": day + 1, "theme": self._theme(spots), "spots": spots})
+            route.append({"day": day + 1, "theme": self._theme(spots, candidate_map), "spots": spots})
 
         score, breakdown = evaluate_itinerary(
             route,
@@ -623,7 +662,15 @@ class AttractionSubsetOptimizer:
                 target = candidate.fixed_day - 1
             else:
                 eligible = [day for day in range(days) if len(by_day[day]) < pace.maximum]
+                if candidate.opening_calendar is not None or candidate.allowed_transfer_names is not None:
+                    candidate_map = {c.poi_name:c.model_dump() for c in candidates}
+                    eligible = [day for day in eligible if _best_feasible_permutation(
+                        [c.poi_name for c in by_day[day]]+[candidate.poi_name], candidate_map,
+                        travel_start_date+timedelta(days=day) if travel_start_date else None) is not None]
                 if not eligible:
+                    if candidate.opening_calendar is not None or candidate.allowed_transfer_names is not None:
+                        if candidate.must_visit:return None
+                        continue
                     break
                 target = min(
                     eligible,
@@ -652,7 +699,7 @@ class AttractionSubsetOptimizer:
             for name, (start, end) in zip(names, schedule):
                 item = next(candidate for candidate in items if candidate.poi_name == name)
                 spots.append(self._spot(item, start, end, _scene_overlap(item.meal_scene, start, end)))
-            route.append({"day": day, "theme": self._theme(spots), "spots": spots})
+            route.append({"day": day, "theme": self._theme(spots, candidate_map), "spots": spots})
         score, breakdown = evaluate_itinerary(
             route, candidate_map, self.profile, daily_target=pace.target, weather_by_day=weather_by_day
         )
@@ -697,9 +744,14 @@ class AttractionSubsetOptimizer:
         }
 
     @staticmethod
-    def _theme(spots: Sequence[Mapping[str, Any]]) -> str:
-        categories = list(dict.fromkeys(str(spot.get("name") or "") for spot in spots[:2]))
-        return "与".join(categories) if categories else "城市漫游"
+    def _theme(
+        spots: Sequence[Mapping[str, Any]],
+        candidates: Mapping[str, Mapping[str, Any]],
+    ) -> str:
+        return build_day_theme([
+            {**candidates.get(str(spot.get("name") or ""), {}), **spot}
+            for spot in spots
+        ])
 
 
 def validate_solution(
@@ -727,6 +779,7 @@ def validate_solution(
                 code="DAILY_COUNT", message=f"Day {day_no} count {len(spots)} outside {minimum}-{pace.maximum}", day=day_no
             ))
         previous_end: int | None = None
+        previous_candidate = None
         day_names = [str(spot.get("name") or "") for spot in spots]
         for spot in spots:
             name = str(spot.get("name") or "")
@@ -737,17 +790,22 @@ def validate_solution(
                 violations.append(QualityViolation(code="DUPLICATE_POI", message=f"{name} appears more than once", day=day_no, poi_name=name))
             seen.add(name)
             candidate = candidate_map[name]
+            if previous_candidate is not None:
+                allowed = previous_candidate.get('allowed_transfer_names')
+                if allowed is not None and name not in allowed:
+                    violations.append(QualityViolation(code='UNQUERIED_TRANSPORT', message=f'No allowed directed transfer to {name}', day=day_no, poi_name=name))
             start = int(spot.get("start_min", _minute(str(spot.get("start_time") or "")) or -1))
             end = int(spot.get("end_min", _minute(str(spot.get("end_time") or "")) or -1))
             if start < DAY_START or end > DAY_END or end - start != int(candidate["duration_min"]):
                 violations.append(QualityViolation(code="TIME_WINDOW", message=f"invalid time for {name}", day=day_no, poi_name=name))
-            bounds = _allowed_start_bounds(candidate)
             visit_date = travel_start_date + timedelta(days=day_no - 1) if travel_start_date else None
-            if bounds is None or _closed_on_date(candidate.get("open_time"), visit_date) or not bounds[0] <= start <= bounds[1]:
+            if not any(lo <= start <= hi for lo, hi in _start_intervals(candidate, visit_date)):
                 violations.append(QualityViolation(code="OPENING_TIME", message=f"{name} is outside its available interval", day=day_no, poi_name=name))
-            if previous_end is not None and start < previous_end + TRANSFER_MIN:
-                violations.append(QualityViolation(code="TRANSFER_BUFFER", message=f"{name} starts before the 20-minute buffer", day=day_no, poi_name=name))
+            transfer = max(TRANSFER_MIN, (previous_candidate or {}).get("transfer_minutes_to", {}).get(name, TRANSFER_MIN))
+            if previous_end is not None and start < previous_end + transfer:
+                violations.append(QualityViolation(code="TRANSFER_BUFFER", message=f"{name} starts before the required {transfer}-minute transfer", day=day_no, poi_name=name))
             previous_end = end
+            previous_candidate = candidate
             if candidate.get("fixed_day") is not None and int(candidate["fixed_day"]) != day_no:
                 violations.append(QualityViolation(code="FIXED_DAY", message=f"{name} is assigned to the wrong day", day=day_no, poi_name=name))
             coverage = spot.get("meal_coverage")

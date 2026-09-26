@@ -305,6 +305,7 @@ class ConversationMemoryTests(unittest.IsolatedAsyncioTestCase):
             "owner", conversation["id"], "archive", first["sequence"], second["sequence"]
         )
         worker = MemoryExtractionWorker(self.db_path, llm=FakeAsyncLlm([result, result]))
+        job = self.jobs.claim_next("test-worker")
         await worker.process(job)
         await worker.process(job)
         facts = self.facts.list("owner", statuses={"active", "candidate", "superseded"})
@@ -365,9 +366,9 @@ class ConversationMemoryTests(unittest.IsolatedAsyncioTestCase):
                         "WHERE conversation_id=? AND kind='archive'",
                         (conversation["id"],),
                     )
-            claimed = self.jobs.claim_next()
+            claimed = self.jobs.claim_next("test-worker")
             self.assertIsNotNone(claimed)
-            self.jobs.fail(claimed["id"], "ProviderError")
+            self.jobs.fail(claimed, "ProviderError")
         with get_conn(self.db_path) as conn:
             failed = conn.execute(
                 "SELECT * FROM memory_extraction_jobs WHERE id=?", (claimed["id"],)

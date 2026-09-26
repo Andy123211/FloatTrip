@@ -44,6 +44,11 @@ def redact_url(url: str) -> str:
 
 
 def http_get_json(url: str, timeout: int = 15) -> dict[str, Any]:
+    from app.core.amap_cache import cached_json
+    return cached_json(url, lambda: _http_get_json_uncached(url, timeout))
+
+
+def _http_get_json_uncached(url: str, timeout: int = 15) -> dict[str, Any]:
     """发起 GET 请求并解析 JSON，失败时退避重试三次。"""
     request = urllib.request.Request(
         url,
@@ -55,6 +60,8 @@ def http_get_json(url: str, timeout: int = 15) -> dict[str, Any]:
     )
     last_error: Exception | None = None
     for attempt in range(3):
+        from app.core.amap_budget import reserve
+        reserve(url)
         try:
             with urllib.request.urlopen(request, timeout=timeout) as response:
                 charset = response.headers.get_content_charset() or "utf-8"
@@ -95,10 +102,17 @@ async def close_async_http_client() -> None:
 
 
 async def http_get_json_async(url: str, timeout: int = 15) -> dict[str, Any]:
+    from app.core.amap_cache import cached_json_async
+    return await cached_json_async(url, lambda: _http_get_json_async_uncached(url, timeout))
+
+
+async def _http_get_json_async_uncached(url: str, timeout: int = 15) -> dict[str, Any]:
     client = await get_async_http_client()
     last_error: Exception | None = None
     async with provider_slot("amap"):
         for attempt in range(3):
+            from app.core.amap_budget import reserve
+            reserve(url)
             try:
                 response = await client.get(url, timeout=timeout)
                 response.raise_for_status()

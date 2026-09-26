@@ -139,7 +139,7 @@ def search_attraction_pois(
 ) -> list[dict[str, Any]]:
     """Search attraction-like POIs; food-street queries may omit type filtering."""
     # 缓存逻辑：仅缓存 page=1 的请求
-    cache_key = poi_cache_key(city, keywords) if page == 1 else None
+    cache_key = poi_cache_key(city, keywords, types=types, offset=offset, page=page) if page == 1 else None
     if cache_key is not None:
         cached = get_cached(cache_key)
         if cached is not None:
@@ -173,7 +173,7 @@ async def search_attraction_pois_async(
     page: int = 1,
     types: str = ATTRACTION_TYPE,
 ) -> list[dict[str, Any]]:
-    cache_key = poi_cache_key(city, keywords) if page == 1 else None
+    cache_key = poi_cache_key(city, keywords, types=types, offset=offset, page=page) if page == 1 else None
     if cache_key is not None:
         cached = await asyncio.to_thread(get_cached, cache_key)
         if cached is not None:

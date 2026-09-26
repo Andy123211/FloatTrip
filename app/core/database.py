@@ -237,6 +237,10 @@ def init_db(path: str | Path | None = None) -> None:
                 created_at          TEXT NOT NULL,
                 updated_at          TEXT NOT NULL,
                 finished_at         TEXT,
+                lease_owner         TEXT,
+                lease_token         TEXT,
+                lease_expires_at    TEXT,
+                applied_through_sequence INTEGER NOT NULL DEFAULT 0,
                 UNIQUE(conversation_id,kind,from_sequence,through_sequence)
             );
 
@@ -288,6 +292,10 @@ def init_db(path: str | Path | None = None) -> None:
             "ALTER TABLE planning_briefs ADD COLUMN memory_match_error_code TEXT",
             "ALTER TABLE planning_briefs ADD COLUMN memory_context_fingerprint TEXT",
             "ALTER TABLE planning_briefs ADD COLUMN memory_matched_at TEXT",
+            "ALTER TABLE memory_extraction_jobs ADD COLUMN lease_owner TEXT",
+            "ALTER TABLE memory_extraction_jobs ADD COLUMN lease_token TEXT",
+            "ALTER TABLE memory_extraction_jobs ADD COLUMN lease_expires_at TEXT",
+            "ALTER TABLE memory_extraction_jobs ADD COLUMN applied_through_sequence INTEGER NOT NULL DEFAULT 0",
         ):
             try:
                 conn.execute(statement)

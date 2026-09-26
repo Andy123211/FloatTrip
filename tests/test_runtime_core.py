@@ -151,6 +151,31 @@ class RuntimeCoreTests(unittest.IsolatedAsyncioTestCase):
             self.manager.runs.get_internal(run["id"])["status"], "failed"
         )
 
+    async def test_startup_preserves_pending_user_interaction(self):
+        run = self.manager.create(
+            user_id="user-a", kind=RunKind.CHAT,
+            conversation_id="conversation-a", request_snapshot={"text": "调整行程"},
+        )
+        self.manager.runs.transition(run["id"], RunStatus.RUNNING)
+        await self.manager.publish(run["id"], "custom", {
+            "kind": "run.waiting_user", "interaction_id": "pending-date",
+            "question": "哪天出发？", "input_schema": {"type": "string", "format": "date"},
+        })
+        self.manager.runs.transition(
+            run["id"], RunStatus.WAITING_USER, outstanding_interaction_id="pending-date",
+        )
+        restarted = RunManager(self.db_path)
+        self.assertEqual(await restarted.reconcile_startup(), [])
+        waiting = restarted.runs.get_internal(run["id"])
+        self.assertEqual(waiting["status"], "waiting_user")
+        self.assertEqual(waiting["outstanding_interaction_id"], "pending-date")
+        self.assertEqual(restarted.events.after(run["id"])[0]["payload"]["question"], "哪天出发？")
+        resumed, accepted = restarted.runs.accept_interaction(
+            "user-a", run["id"], "pending-date", "2026-10-02",
+        )
+        self.assertTrue(accepted)
+        self.assertEqual(resumed["status"], "running")
+
     async def test_revisions_for_one_itinerary_are_serialized(self):
         scheduler = RuntimeScheduler(
             self.manager, planning_limit=2, planning_per_user=2

@@ -45,6 +45,10 @@ class MemoryNotFound(LookupError):
     pass
 
 
+class MemoryLeaseLost(RuntimeError):
+    """This extraction attempt no longer owns the right to write results."""
+
+
 class ArchivedConversationError(RuntimeError):
     pass
 
@@ -340,36 +344,40 @@ class MemoryRepository:
             self._bump_revision(conn, user_id)
             return self.get(user_id, fact_id, conn)
 
-    def delete(self, user_id: str, fact_id: str) -> dict[str, Any]:
-        with get_conn(self.db_path) as conn:
-            conn.execute("BEGIN IMMEDIATE")
-            fact = self.get(user_id, fact_id, conn)
-            if fact["status"] == "deleted":
-                return fact
-            now = utcnow()
-            conn.execute(
-                "UPDATE memory_facts SET status='deleted',deleted_at=?,updated_at=? WHERE id=?",
-                (now, now, fact_id),
-            )
-            if fact["status"] == "active":
-                self._bump_revision(conn, user_id)
-            return self.get(user_id, fact_id, conn)
+    def delete(self, user_id: str, fact_id: str, conn: sqlite3.Connection | None = None) -> dict[str, Any]:
+        if conn is None:
+            with get_conn(self.db_path) as owned:
+                owned.execute("BEGIN IMMEDIATE")
+                return self.delete(user_id, fact_id, owned)
+        fact = self.get(user_id, fact_id, conn)
+        if fact["status"] == "deleted":
+            return fact
+        now = utcnow()
+        conn.execute(
+            "UPDATE memory_facts SET status='deleted',deleted_at=?,updated_at=? WHERE id=?",
+            (now, now, fact_id),
+        )
+        if fact["status"] == "active":
+            self._bump_revision(conn, user_id)
+        return self.get(user_id, fact_id, conn)
 
-    def supersede(self, user_id: str, fact_id: str) -> dict[str, Any]:
-        with get_conn(self.db_path) as conn:
-            conn.execute("BEGIN IMMEDIATE")
-            fact = self.get(user_id, fact_id, conn)
-            if fact["status"] == "superseded":
-                return fact
-            if fact["status"] == "deleted":
-                return fact
-            conn.execute(
-                "UPDATE memory_facts SET status='superseded',updated_at=? WHERE id=?",
-                (utcnow(), fact_id),
-            )
-            if fact["status"] == "active":
-                self._bump_revision(conn, user_id)
-            return self.get(user_id, fact_id, conn)
+    def supersede(self, user_id: str, fact_id: str, conn: sqlite3.Connection | None = None) -> dict[str, Any]:
+        if conn is None:
+            with get_conn(self.db_path) as owned:
+                owned.execute("BEGIN IMMEDIATE")
+                return self.supersede(user_id, fact_id, owned)
+        fact = self.get(user_id, fact_id, conn)
+        if fact["status"] == "superseded":
+            return fact
+        if fact["status"] == "deleted":
+            return fact
+        conn.execute(
+            "UPDATE memory_facts SET status='superseded',updated_at=? WHERE id=?",
+            (utcnow(), fact_id),
+        )
+        if fact["status"] == "active":
+            self._bump_revision(conn, user_id)
+        return self.get(user_id, fact_id, conn)
 
     @staticmethod
     def format_for_prompt(facts: list[dict[str, Any]]) -> str:
@@ -514,49 +522,99 @@ class MemoryJobRepository:
         ).fetchone()
         return dict(row) if row else None
 
-    def reset_running(self) -> int:
-        with get_conn(self.db_path) as conn:
-            cur = conn.execute(
-                "UPDATE memory_extraction_jobs SET status='pending',updated_at=? "
-                "WHERE status='running'",
-                (utcnow(),),
-            )
-            return cur.rowcount
+    @staticmethod
+    def _deadline(seconds: float) -> str:
+        if seconds <= 0:
+            raise ValueError("lease duration must be positive")
+        return (datetime.now(timezone.utc) + timedelta(seconds=seconds)).isoformat()
 
-    def claim_next(self) -> dict[str, Any] | None:
+    @staticmethod
+    def require_lease(job: dict[str, Any], conn: sqlite3.Connection) -> dict[str, Any]:
+        row = conn.execute(
+            "SELECT * FROM memory_extraction_jobs WHERE id=? AND status='running' "
+            "AND lease_owner=? AND lease_token=? AND lease_expires_at>?",
+            (job["id"], job.get("lease_owner"), job.get("lease_token"), utcnow()),
+        ).fetchone()
+        if not row:
+            raise MemoryLeaseLost("memory extraction lease expired or replaced")
+        return dict(row)
+
+    def claim_next(self, owner: str, *, lease_seconds: float = 120) -> dict[str, Any] | None:
+        if not owner:
+            raise ValueError("lease owner is required")
         with get_conn(self.db_path) as conn:
             conn.execute("BEGIN IMMEDIATE")
+            now = utcnow()
+            # Only abandoned leases are recoverable. Startup never resets live work.
+            # NULL leases are jobs left by the pre-lease version after it was stopped.
+            expired = conn.execute(
+                "SELECT * FROM memory_extraction_jobs WHERE status='running' "
+                "AND (lease_expires_at IS NULL OR lease_expires_at<=?)", (now,),
+            ).fetchall()
+            for old in expired:
+                terminal = int(old["attempts"]) >= 5
+                conn.execute(
+                    "UPDATE memory_extraction_jobs SET status=?,lease_owner=NULL,lease_token=NULL,"
+                    "lease_expires_at=NULL,next_attempt_at=NULL,last_error_code='LeaseExpired',updated_at=? WHERE id=?",
+                    ("failed" if terminal else "pending", now, old["id"]),
+                )
+                if terminal and old["kind"] == "archive":
+                    conn.execute(
+                        "UPDATE conversation_memory_states SET finalization_status='failed',"
+                        "last_error_code='LeaseExpired',updated_at=? WHERE conversation_id=?",
+                        (now, old["conversation_id"]),
+                    )
             row = conn.execute(
                 "SELECT * FROM memory_extraction_jobs WHERE status='pending' "
                 "AND (next_attempt_at IS NULL OR next_attempt_at<=?) "
-                "ORDER BY created_at,id LIMIT 1",
-                (utcnow(),),
+                "ORDER BY created_at,id LIMIT 1", (now,),
             ).fetchone()
             if not row:
                 return None
             conn.execute(
-                "UPDATE memory_extraction_jobs SET status='running',attempts=attempts+1,updated_at=? "
-                "WHERE id=? AND status='pending'",
-                (utcnow(), row["id"]),
+                "UPDATE memory_extraction_jobs SET status='running',attempts=attempts+1,"
+                "lease_owner=?,lease_token=?,lease_expires_at=?,updated_at=? WHERE id=?",
+                (owner, str(uuid.uuid4()), self._deadline(lease_seconds), now, row["id"]),
             )
-            claimed = conn.execute(
+            return dict(conn.execute(
                 "SELECT * FROM memory_extraction_jobs WHERE id=?", (row["id"],)
-            ).fetchone()
-            return dict(claimed) if claimed else None
+            ).fetchone())
 
-    def complete(self, job_id: str) -> None:
+    def renew(self, job: dict[str, Any], *, lease_seconds: float = 120) -> bool:
         with get_conn(self.db_path) as conn:
-            now = utcnow()
-            row = conn.execute(
-                "SELECT conversation_id,kind FROM memory_extraction_jobs WHERE id=?",
-                (job_id,),
-            ).fetchone()
-            if not row:
-                return
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                self.require_lease(job, conn)
+            except MemoryLeaseLost:
+                return False
             conn.execute(
-                "UPDATE memory_extraction_jobs SET status='succeeded',finished_at=?,"
-                "last_error_code=NULL,updated_at=? WHERE id=?",
-                (now, now, job_id),
+                "UPDATE memory_extraction_jobs SET lease_expires_at=?,updated_at=? WHERE id=?",
+                (self._deadline(lease_seconds), utcnow(), job["id"]),
+            )
+            return True
+
+    def release(self, job: dict[str, Any]) -> None:
+        """Graceful shutdown releases only our own live attempt; keep its progress."""
+        with get_conn(self.db_path) as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            self.require_lease(job, conn)
+            conn.execute(
+                "UPDATE memory_extraction_jobs SET status='pending',attempts=MAX(0,attempts-1),"
+                "lease_owner=NULL,lease_token=NULL,lease_expires_at=NULL,next_attempt_at=NULL,updated_at=? WHERE id=?",
+                (utcnow(), job["id"]),
+            )
+
+    def complete(self, job: dict[str, Any]) -> None:
+        with get_conn(self.db_path) as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = self.require_lease(job, conn)
+            if row["applied_through_sequence"] < row["through_sequence"]:
+                raise ValueError("memory job still has unapplied messages")
+            now = utcnow()
+            conn.execute(
+                "UPDATE memory_extraction_jobs SET status='succeeded',finished_at=?,last_error_code=NULL,"
+                "lease_owner=NULL,lease_token=NULL,lease_expires_at=NULL,updated_at=? WHERE id=?",
+                (now, now, job["id"]),
             )
             if row["kind"] == "archive":
                 conn.execute(
@@ -565,26 +623,18 @@ class MemoryJobRepository:
                     (now, now, row["conversation_id"]),
                 )
 
-    def fail(self, job_id: str, error_code: str) -> None:
+    def fail(self, job: dict[str, Any], error_code: str) -> None:
         with get_conn(self.db_path) as conn:
-            row = conn.execute(
-                "SELECT attempts,conversation_id,kind FROM memory_extraction_jobs WHERE id=?",
-                (job_id,),
-            ).fetchone()
-            if not row:
-                return
+            conn.execute("BEGIN IMMEDIATE")
+            row = self.require_lease(job, conn)
             attempts = int(row["attempts"])
             terminal = attempts >= 5
             delay = min(2 ** max(0, attempts - 1) * 30, 7200)
-            next_at = (
-                None
-                if terminal
-                else (datetime.now(timezone.utc) + timedelta(seconds=delay)).isoformat()
-            )
+            next_at = None if terminal else self._deadline(delay)
             conn.execute(
-                "UPDATE memory_extraction_jobs SET status=?,next_attempt_at=?,last_error_code=?,updated_at=? "
-                "WHERE id=?",
-                ("failed" if terminal else "pending", next_at, error_code, utcnow(), job_id),
+                "UPDATE memory_extraction_jobs SET status=?,next_attempt_at=?,last_error_code=?,"
+                "lease_owner=NULL,lease_token=NULL,lease_expires_at=NULL,updated_at=? WHERE id=?",
+                ("failed" if terminal else "pending", next_at, error_code, utcnow(), job["id"]),
             )
             if terminal and row["kind"] == "archive":
                 conn.execute(

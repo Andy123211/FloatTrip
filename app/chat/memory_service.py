@@ -8,7 +8,9 @@ import logging
 import math
 import os
 import re
+import sqlite3
 import time
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -17,11 +19,13 @@ from app.chat.memory_models import ConversationSummary, MemoryExtractionResult
 from app.core.travel_memory import (
     ConversationMemoryRepository,
     MemoryJobRepository,
+    MemoryLeaseLost,
     MemoryNotFound,
     MemoryRepository,
     is_prohibited_memory_value,
     normalize_value,
 )
+from app.core.database import get_conn
 from app.llm.factory import build_structured_llm
 from app.planning.helpers import ainvoke_structured
 from app.runtime.repositories import ConversationRepository
@@ -394,6 +398,7 @@ class MemoryExtractionWorker:
         *,
         llm: Any | None = None,
         poll_seconds: float = 2.0,
+        lease_seconds: float = 120.0,
     ):
         self.db_path = db_path
         self.jobs = MemoryJobRepository(db_path)
@@ -401,11 +406,16 @@ class MemoryExtractionWorker:
         self.conversations = ConversationRepository(db_path)
         self.llm = llm
         self.poll_seconds = poll_seconds
+        if lease_seconds <= 0:
+            raise ValueError("lease duration must be positive")
+        self.lease_seconds = lease_seconds
+        self.owner_id = str(uuid.uuid4())
         self._task: asyncio.Task[Any] | None = None
         self._stopping = asyncio.Event()
 
     async def start(self) -> None:
-        await asyncio.to_thread(self.jobs.reset_running)
+        if self._task and not self._task.done():
+            return
         self._stopping.clear()
         self._task = asyncio.create_task(self._run(), name="memory-extraction-worker")
 
@@ -421,16 +431,25 @@ class MemoryExtractionWorker:
 
     async def _run(self) -> None:
         while not self._stopping.is_set():
-            job = await asyncio.to_thread(self.jobs.claim_next)
+            job = await asyncio.to_thread(
+                self.jobs.claim_next, self.owner_id, lease_seconds=self.lease_seconds,
+            )
             if not job:
                 try:
                     await asyncio.wait_for(self._stopping.wait(), self.poll_seconds)
                 except asyncio.TimeoutError:
                     continue
                 continue
+            processing = asyncio.create_task(self.process(job))
+            heartbeat = asyncio.create_task(self._heartbeat(job))
             try:
-                stats = await self.process(job)
-                await asyncio.to_thread(self.jobs.complete, job["id"])
+                done, _ = await asyncio.wait(
+                    {processing, heartbeat}, return_when=asyncio.FIRST_COMPLETED,
+                )
+                if heartbeat in done:
+                    await heartbeat  # Lease loss stops processing and discards stale output.
+                stats = await processing
+                await asyncio.to_thread(self.jobs.complete, job)
                 metrics.increment(f"memory_jobs_succeeded:{job['kind']}")
                 for key, value in stats.items():
                     metrics.increment(f"memory_facts:{key}", value)
@@ -447,30 +466,64 @@ class MemoryExtractionWorker:
                             max(0.0, time.time() - archived),
                         )
             except asyncio.CancelledError:
+                processing.cancel()
+                heartbeat.cancel()
+                # A to_thread commit may still finish, but it shares the lease
+                # transaction with its progress checkpoint before this release.
+                try:
+                    await asyncio.to_thread(self.jobs.release, job)
+                except MemoryLeaseLost:
+                    pass
                 raise
+            except MemoryLeaseLost:
+                metrics.increment("memory_jobs_lease_lost")
             except Exception as exc:
                 metrics.increment(f"memory_jobs_failed:{job['kind']}")
                 logger.warning(
                     "memory extraction failed job=%s error=%s",
                     job["id"], type(exc).__name__,
                 )
-                await asyncio.to_thread(
-                    self.jobs.fail, job["id"], type(exc).__name__
+                try:
+                    await asyncio.to_thread(self.jobs.fail, job, type(exc).__name__)
+                except MemoryLeaseLost:
+                    pass
+            finally:
+                processing.cancel()
+                heartbeat.cancel()
+                await asyncio.gather(processing, heartbeat, return_exceptions=True)
+
+    async def _heartbeat(self, job: dict[str, Any]) -> None:
+        while True:
+            await asyncio.sleep(self.lease_seconds / 3)
+            try:
+                renewed = await asyncio.to_thread(
+                    self.jobs.renew, job, lease_seconds=self.lease_seconds,
                 )
+            except Exception as exc:
+                raise MemoryLeaseLost("memory lease renewal failed") from exc
+            if not renewed:
+                raise MemoryLeaseLost("memory lease no longer owned")
 
     async def process(self, job: dict[str, Any]) -> dict[str, int]:
+        with get_conn(self.db_path) as conn:
+            current = self.jobs.require_lease(job, conn)
         messages = await asyncio.to_thread(
             self.conversations.message_range,
             job["user_id"], job["conversation_id"],
-            int(job["from_sequence"]), int(job["through_sequence"]),
+            max(int(job["from_sequence"]), int(current["applied_through_sequence"]) + 1),
+            int(job["through_sequence"]),
         )
         totals = {"active": 0, "candidate": 0, "forgotten": 0, "rejected": 0}
+        if not messages:
+            return totals
         llm = self.llm or build_structured_llm(
             MemoryExtractionResult,
             model=os.getenv("MEMORY_EXTRACTION_MODEL") or None,
             temperature=0,
         )
         for chunk in self._extraction_chunks(messages):
+            with get_conn(self.db_path) as conn:
+                self.jobs.require_lease(job, conn)
             active = await asyncio.to_thread(
                 self.facts.list, job["user_id"], statuses={"active"}
             )
@@ -498,10 +551,31 @@ class MemoryExtractionWorker:
                 if isinstance(result, MemoryExtractionResult)
                 else MemoryExtractionResult.model_validate(result)
             )
-            stats = await asyncio.to_thread(self._apply, job, chunk, active, parsed)
+            stats = await asyncio.to_thread(self._commit_chunk, job, chunk, active, parsed)
             for key, value in stats.items():
                 totals[key] += value
         return totals
+
+    def _commit_chunk(
+        self, job: dict[str, Any], messages: list[dict[str, Any]],
+        active: list[dict[str, Any]], result: MemoryExtractionResult,
+    ) -> dict[str, int]:
+        """Fence facts and their progress checkpoint in the same write transaction."""
+        with get_conn(self.db_path) as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            current = self.jobs.require_lease(job, conn)
+            through = int(messages[-1]["sequence"])
+            if current["applied_through_sequence"] >= through:
+                return {"active": 0, "candidate": 0, "forgotten": 0, "rejected": 0}
+            if current["applied_through_sequence"] >= int(messages[0]["sequence"]):
+                raise MemoryLeaseLost("memory chunk overlaps committed progress")
+            stats = self._apply(job, messages, active, result, conn)
+            self.jobs.require_lease(job, conn)
+            conn.execute(
+                "UPDATE memory_extraction_jobs SET applied_through_sequence=? WHERE id=?",
+                (through, job["id"]),
+            )
+            return stats
 
     @staticmethod
     def _extraction_chunks(
@@ -531,6 +605,7 @@ class MemoryExtractionWorker:
         messages: list[dict[str, Any]],
         active: list[dict[str, Any]],
         result: MemoryExtractionResult,
+        conn: sqlite3.Connection,
     ) -> dict[str, int]:
         stats = {"active": 0, "candidate": 0, "forgotten": 0, "rejected": 0}
         allowed_sequences = {int(row["sequence"]) for row in messages}
@@ -564,7 +639,7 @@ class MemoryExtractionWorker:
                         and fact["category"] == item.category
                     ]
                 for fact_id in superseded:
-                    self.facts.delete(job["user_id"], fact_id)
+                    self.facts.delete(job["user_id"], fact_id, conn=conn)
                     stats["forgotten"] += 1
                 continue
             status = "active"
@@ -593,13 +668,14 @@ class MemoryExtractionWorker:
                 evidence_sequences=evidence,
                 confidence=1.0 if item.explicitness == "explicit" else 0.6,
                 supersedes_id=superseded[0] if superseded else None,
+                conn=conn,
             )
             if created["status"] == status:
                 stats[status] += 1
             if status == "active" and item.action == "replace":
                 for fact_id in superseded:
                     if fact_id != created["id"]:
-                        self.facts.supersede(job["user_id"], fact_id)
+                        self.facts.supersede(job["user_id"], fact_id, conn=conn)
         return stats
 
     @staticmethod

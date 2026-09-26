@@ -350,7 +350,7 @@ function cssColor(name, fallback) {
 // seq 防竞态：切换天数后旧 search 的迟到回调直接丢弃，避免旧路线画到新地图上。
 function drawRealRoute(AMap, inst, path) {
   const seq = inst.seq;
-  const accent = cssColor("--accent", "#FFD166");
+  const accent = cssColor("--route-color", "#2864A8");
   const fallbackLine = () => {
     inst.map.add(new AMap.Polyline({
       path, strokeColor: accent, strokeWeight: 3.5,
@@ -395,7 +395,7 @@ function _mapIconSvg(name, size = 13, margin = 3) {
 function markerInfoHtml(pt) {
   const it = pt.info || {};
   const isMeal = pt.kind === "meal";
-  const parts = [`<div style="width:252px;color:var(--ink,#6B4E3D);line-height:1.5;font-family:Nunito,'Noto Sans SC',sans-serif">`];
+  const parts = [`<div style="width:252px;color:var(--ink,#151A20);line-height:1.5;font-family:'DM Sans','Noto Sans SC',sans-serif">`];
   if (it.photo) {
     parts.push(`<div style="width:100%;height:120px;border-radius:8px;background:url('${_esc(it.photo)}') center/cover;margin-bottom:8px"></div>`);
   }
@@ -405,11 +405,11 @@ function markerInfoHtml(pt) {
   if (it.rating) meta.push(`${_mapIconSvg("star")}${_esc(it.rating)}`);
   if (isMeal && it.cost) meta.push(`${_mapIconSvg("wallet")}¥${_esc(it.cost)}/人`);
   if (!isMeal && it.start && it.end) meta.push(`${_mapIconSvg("clock")}${_esc(it.start)}–${_esc(it.end)}`);
-  if (meta.length) parts.push(`<div style="font-size:12.5px;color:var(--ink-2,#7F6555);margin-bottom:4px">${meta.join("&nbsp;&nbsp;")}</div>`);
-  if (!isMeal && it.open) parts.push(`<div style="font-size:12px;color:var(--ink-2,#7F6555);margin-bottom:4px">开放时间：${_esc(it.open)}</div>`);
-  if (it.addr) parts.push(`<div style="font-size:12px;color:var(--ink-2,#7F6555);margin-bottom:6px">${_mapIconSvg("location")}${_esc(it.addr)}</div>`);
+  if (meta.length) parts.push(`<div style="font-size:12.5px;color:var(--ink-2,#475569);margin-bottom:4px">${meta.join("&nbsp;&nbsp;")}</div>`);
+  if (!isMeal && it.open) parts.push(`<div style="font-size:12px;color:var(--ink-2,#475569);margin-bottom:4px">开放时间：${_esc(it.open)}</div>`);
+  if (it.addr) parts.push(`<div style="font-size:12px;color:var(--ink-2,#475569);margin-bottom:6px">${_mapIconSvg("location")}${_esc(it.addr)}</div>`);
   if (it.reason) {
-    parts.push(`<div style="font-size:12px;line-height:1.7;background:var(--card-2,#FFF7DF);border-radius:10px;padding:8px 10px;color:var(--ink,#6B4E3D)">${_esc(it.reason)}</div>`);
+    parts.push(`<div style="font-size:12px;line-height:1.7;background:var(--card-2,#EDF5FD);border-radius:10px;padding:8px 10px;color:var(--ink,#151A20)">${_esc(it.reason)}</div>`);
   }
   parts.push(`</div>`);
   return parts.join("");
@@ -439,8 +439,8 @@ async function initAmapForDay(container, points) {
     map.clearMap();
     infoWindow.close();
 
-    const accent = cssColor("--accent", "#FFD166");
-    const second = cssColor("--second-fill", "#8FB26E");
+    const accent = cssColor("--route-color", "#2864A8");
+    const second = cssColor("--second-fill", "#DCEEFF");
     const path = [];
     let spotNo = 0;  // 景点单独编号，餐厅不占号
     pts.forEach((pt, i) => {
@@ -450,7 +450,7 @@ async function initAmapForDay(container, points) {
       const content = `<div style="width:28px;height:28px;display:grid;place-items:center;
         border-radius:${isMeal ? "7px" : "50%"};
         background:${isMeal ? second : accent};
-        color:#5B3F30;font-size:${isMeal ? "14px" : "12.5px"};font-weight:800;border:2px solid #FFFDF8;
+        color:${isMeal ? "#151A20" : "#FFFFFF"};font-size:${isMeal ? "14px" : "12.5px"};font-weight:800;border:2px solid #FFFFFF;
         box-shadow:0 2px 8px rgba(0,0,0,.3);${isMeal ? "transform:rotate(45deg);" : ""}">
         <span style="${isMeal ? "transform:rotate(-45deg);display:grid;place-items:center;" : ""}">${isMeal ? _mapIconSvg("utensils", 15, 0) : ++spotNo}</span></div>`;
       const marker = new AMap.Marker({ position: pos, content, offset: new AMap.Pixel(-14, -14), zIndex: 100 + i });
@@ -562,7 +562,7 @@ async function drawNavPairRoute(container, from, to) {
 
   const origin = [from.lng, from.lat];
   const dest = [to.lng, to.lat];
-  const accent = cssColor("--accent", "#FFD166");
+  const accent = cssColor("--route-color", "#2864A8");
 
   const drawLine = (coords) => {
     if (seq !== inst.seq) return;
@@ -804,7 +804,7 @@ function adaptPlan(backendPlan, username) {
     };
   });
 
-  // 途途小贴士：天气说明 + 全部出行提醒（reviewer issues）合并为一组提示
+  // 旅行贴士：天气说明 + 全部出行提醒（reviewer issues）合并为一组提示
   const tips = [
     ...(backendPlan.weather_note ? [backendPlan.weather_note] : []),
     ...(backendPlan.route_issues || []),

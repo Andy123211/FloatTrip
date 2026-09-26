@@ -9,7 +9,7 @@ function RedesignTimeline({ items, selectedIndex, onSelect, onNav, activeNavKey,
       const isMeal = item.type !== "attraction";
       const note = item.note || item.reason || item.address || item.addr
         || (["queued", "running"].includes(tipStatus)
-          ? "途途正在整理这处地点的旅行贴士…"
+          ? "途见正在整理这处地点的旅行贴士…"
           : "已同步到当前路线，点开地图标记可查看详情。");
       const duration = itemDuration(item);
       const warning = `${note}。${item.open || ""}`.split(/(?<=[。！？；])/).filter(sentence => /闭馆|关闭|暂停|不可|禁止|危险|冲突|未预约|停止入场/.test(sentence)).join("");
@@ -41,24 +41,21 @@ function RedesignCopilot(props) {
   return <section className="rd-chat-panel"><ChatPage embedded {...props} /></section>;
 }
 
+function StudioPlacePhoto({ name, photo }) {
+  const [status, setStatus] = React.useState(photo ? "loading" : "empty");
+  const hasImage = !!photo && status !== "error";
+  return <figure className={`sl-place-photo${hasImage ? " has-image" : " is-empty"}`}>
+    {hasImage && <img src={photo} alt={`${name || "景点"}实景照片`} width="640" height="400" decoding="async" onLoad={() => setStatus("ready")} onError={() => setStatus("error")} />}
+    {status !== "ready" && <figcaption role={status === "loading" ? "status" : undefined}>
+      <UiIcon name="map" size={22} />
+      <span>{status === "loading" ? "照片加载中…" : status === "error" ? "照片暂时无法加载" : "暂无景点照片"}</span>
+    </figcaption>}
+  </figure>;
+}
+
 function ProfileModal({ currentUsername, onClose, onLogout }) {
   const dialogRef = React.useRef(null);
-  React.useEffect(() => {
-    const previous = document.activeElement;
-    const overflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    dialogRef.current?.focus();
-    const keydown = event => {
-      if (event.key === "Escape") onClose();
-      if (event.key !== "Tab") return;
-      const items = [...dialogRef.current.querySelectorAll('button, input, select, textarea, [tabindex="0"]')].filter(item => !item.disabled && item.getClientRects().length);
-      const first = items[0], last = items[items.length - 1];
-      if (event.shiftKey && (document.activeElement === first || document.activeElement === dialogRef.current)) { event.preventDefault(); last?.focus(); }
-      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
-    };
-    document.addEventListener("keydown", keydown);
-    return () => { document.body.style.overflow = overflow; document.removeEventListener("keydown", keydown); previous?.focus(); };
-  }, []);
+  useDialogFocus(dialogRef, onClose);
   return <div className="rd-profile-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}><section ref={dialogRef} tabIndex="-1" className="studio-profile-modal" role="dialog" aria-modal="true" aria-label="我的旅行画像"><button className="studio-profile-close" onClick={onClose} aria-label="关闭用户画像"><UiIcon name="close" size={20} /></button><ProfilePage currentUsername={currentUsername} />{onLogout && <footer className="profile-account-actions"><button onClick={onLogout}>退出登录</button></footer>}</section></div>;
 }
 
@@ -173,6 +170,8 @@ function TripDetailPage({ plan: planProp, planId: planIdProp, onRequestModify, c
   const [selectedIndex, setSelectedIndex] = React.useState(0);
   const [activeNavKey, setActiveNavKey] = React.useState(null);
   const [activeNavPair, setActiveNavPair] = React.useState(null);
+  const [mobilePane, setMobilePane] = React.useState(planIdProp ? "itinerary" : "chat");
+  const [mobileDetail, setMobileDetail] = React.useState("route");
   const [detailWidth, setDetailWidth] = React.useState(54);
   const [resizing, setResizing] = React.useState(false);
   const [chatOnly, setChatOnly] = React.useState(false);
@@ -246,7 +245,7 @@ function TripDetailPage({ plan: planProp, planId: planIdProp, onRequestModify, c
       if (!data?.plan) return;
       const adapted = adaptPlan(data.plan, currentUsername);
       setEditing(false); setDraftPlan(null); setDrawer(null);
-      setPlan(adapted); setPlanId(resultPlanId);
+      setPlan(adapted); setPlanId(resultPlanId); setMobilePane("itinerary");
       if (resultPlanId !== planId) { setDayIdx(0); setSelectedIndex(0); }
       onPlanChange?.(data.plan, resultPlanId);
     } catch (error) { showNotice(error.message || "行程加载失败，请重试"); }
@@ -259,7 +258,7 @@ function TripDetailPage({ plan: planProp, planId: planIdProp, onRequestModify, c
   const closeDrawer = React.useCallback(() => { setDrawer(null); drawerTriggerRef.current?.focus(); }, []);
   const openDrawer = value => { drawerTriggerRef.current = document.activeElement; setDrawer(value); setMenu(null); };
   const finishEdit = () => { setEditing(false); setDraftPlan(null); setDrawer(null); };
-  const beginEdit = () => { setEditing(true); setMenu(null); setDrawer(null); };
+  const beginEdit = () => { setMobileDetail("route"); setEditing(true); setMenu(null); setDrawer(null); };
   const prepareNavigation = () => { if (editing && !editorRef.current?.canLeave()) return false; finishEdit(); return true; };
   React.useEffect(() => {
     if (!navigationGuardRef) return;
@@ -270,7 +269,7 @@ function TripDetailPage({ plan: planProp, planId: planIdProp, onRequestModify, c
   React.useEffect(() => {
     if (drawer) {
       drawerRef.current?.focus({ preventScroll: true });
-      if (window.matchMedia("(max-width: 760px)").matches) drawerRef.current?.scrollIntoView({ block: "nearest" });
+
     }
   }, [drawer?.type]);
   React.useEffect(() => {
@@ -307,9 +306,10 @@ function TripDetailPage({ plan: planProp, planId: planIdProp, onRequestModify, c
   const drawerTitle = drawer?.type === "notes" ? "旅行资料" : drawer?.type === "search" ? "替换 / 添加地点" : drawer?.type === "nearby" ? `${selected?.name || "地点"}周边` : selected?.name || "地点详情";
 
   return <div className="page page-fade trip-detail-page rd-page">
-    <main className="rd-app">
+    <main className="rd-app" data-mobile-pane={mobilePane} data-mobile-detail={mobileDetail}>
+      <nav className="mobile-workspace-tabs" aria-label="工作区视图">{[{id:"chat",label:"对话",icon:"chat"},{id:"itinerary",label:"行程",icon:"map"}].map(item => <button key={item.id} aria-pressed={mobilePane === item.id} onClick={() => { setMobilePane(item.id); setChatOnly(false); setDetailOnly(false); setDrawer(null); }}><UiIcon name={item.icon} size={17} />{item.label}</button>)}</nav>
       <section className={`rd-workspace${chatOnly ? " chat-only" : ""}${detailOnly ? " detail-only" : ""}`} style={{ "--rd-detail-width": `${detailWidth}%` }}>
-        <RedesignCopilot onBeforeConversationChange={prepareNavigation} inputDisabled={editing} currentUsername={currentUsername} relatedPlanId={planId} onBack={() => leaveWorkspace(onBack)} onToggleDetail={() => { setChatOnly(value => !value); setDetailOnly(false); }} onOpenPlan={openConversationResult} onPlanResult={openConversationResult} onClearPlan={() => leaveWorkspace(onClearPlan)} initialDraft={initialDraft} onInitialDraftConsumed={onInitialDraftConsumed} revisionTrigger={revisionTrigger} onRevisionConsumed={onRevisionConsumed} onRequestLogin={onRequestLogin} />
+        <RedesignCopilot onBeforeConversationChange={prepareNavigation} inputDisabled={editing} currentUsername={currentUsername} relatedPlanId={planId} onBack={() => leaveWorkspace(onBack)} onToggleDetail={() => { if (window.matchMedia("(max-width: 900px)").matches) { setMobilePane("itinerary"); } else { setChatOnly(value => !value); setDetailOnly(false); } }} onOpenPlan={openConversationResult} onPlanResult={openConversationResult} onClearPlan={() => leaveWorkspace(onClearPlan)} initialDraft={initialDraft} onInitialDraftConsumed={onInitialDraftConsumed} revisionTrigger={revisionTrigger} onRevisionConsumed={onRevisionConsumed} onRequestLogin={onRequestLogin} />
         <div className="rd-divider" role="separator" tabIndex="0" aria-label="调整对话和行程详情宽度" aria-orientation="vertical" aria-valuemin="40" aria-valuemax="70" aria-valuenow={Math.round(detailWidth)} onPointerDown={event => { event.preventDefault(); setResizing(true); }} onDoubleClick={() => setDetailWidth(54)} onKeyDown={event => {
           if (event.key === "Home") setDetailWidth(54);
           if (event.key === "ArrowLeft") setDetailWidth(value => Math.min(70, value + 2));
@@ -317,21 +317,22 @@ function TripDetailPage({ plan: planProp, planId: planIdProp, onRequestModify, c
         }}><span /></div>
 
         <section className="rd-detail-panel">
-          {!hasPlan ? <div className="studio-detail-empty"><div className="rd-kicker">YOUR NEXT JOURNEY</div><UiIcon name="map" size={58} /><h2>把想去的地方，<br />慢慢变成一段旅程。</h2><p>在左侧和途途聊聊。确认旅行需求后，<br />完整路线、每日安排与地图会在这里展开。</p></div> : <>
+          {!hasPlan ? <div className="studio-detail-empty"><BrandMark size={64} decorative /><h2>把想去的地方，<br />慢慢变成一段旅程。</h2><p>在左侧和途见聊聊。确认旅行需求后，<br />完整路线、每日安排与地图会在这里展开。</p></div> : <>
           <div className="rd-detail-header sl-detail-header">
-            <div className="sl-heading-row"><div className="sl-heading-copy"><small>YOUR ITINERARY</small><h2>{plan.title}</h2></div>
+            <div className="sl-heading-row"><div className="sl-heading-copy"><h2>{plan.title}</h2></div>
               <div className="sl-toolbar" ref={setToolbarHost}>{!editing && <><button disabled={optimizing} aria-label="编辑行程" onClick={beginEdit}><UiIcon name="edit" size={15} />编辑</button><button className="primary" onClick={share}><UiIcon name="share" size={15} />分享</button><div className="sl-menu-wrap"><button aria-label="更多行程操作" aria-expanded={menu === "trip"} onClick={() => setMenu(menu === "trip" ? null : "trip")}><UiIcon name="menu" size={17} /></button>{menu === "trip" && <div className="sl-menu"><button onClick={() => openDrawer({ type: "notes" })}>旅行资料</button><button onClick={() => { setDetailOnly(value => !value); setChatOnly(false); setMenu(null); }}>{detailOnly ? "显示 AI 对话" : "收起 AI 对话"}</button></div>}</div></>}</div>
             </div>
             <div className="sl-heading-links"><button aria-expanded={overviewOpen} onClick={() => setOverviewOpen(value => !value)}>行程概览 <UiIcon name={overviewOpen ? "chevron-up" : "chevron-down"} size={12} /></button><button onClick={() => openDrawer({ type: "notes" })}>旅行资料</button></div>
-            {overviewOpen && <div className="sl-overview"><div className="rd-cover" style={{ backgroundImage: `linear-gradient(100deg, rgba(49,38,31,.82), rgba(74,58,46,.22))${plan.days.flatMap(item => item.items).find(item => item.photo)?.photo ? `, url("${plan.days.flatMap(item => item.items).find(item => item.photo).photo}")` : ""}` }}><div><small>ITINERARY · 行程总览</small><p>{displayDateRange}</p><p>{coverBadges.map((badge, index) => <span key={index}>{badge}</span>)}</p></div></div></div>}
+            {overviewOpen && <div className="sl-overview"><div className="rd-cover" style={{ backgroundImage: `linear-gradient(100deg, rgba(21,26,32,.82), rgba(21,26,32,.22))${plan.days.flatMap(item => item.items).find(item => item.photo)?.photo ? `, url("${plan.days.flatMap(item => item.items).find(item => item.photo).photo}")` : ""}` }}><div><small>ITINERARY · 行程总览</small><p>{displayDateRange}</p><p>{coverBadges.map((badge, index) => <span key={index}>{badge}</span>)}</p></div></div></div>}
             <nav className="rd-day-tabs sl-day-tabs" role="tablist" aria-label="行程日期">{plan.days.map((item, index) => {
               const forecast = plan.weather?.[index];
               return <button key={index} role="tab" aria-selected={dayIdx === index} disabled={optimizing} className={dayIdx === index ? "active" : ""} onClick={() => changeDay(index)}><div><strong>Day {index + 1} <span>{item.date}</span></strong><small><WeatherGlyph value={forecast?.icon || forecast?.text} size={14} />{forecast?.text || "天气待定"}{forecast?.hi != null ? ` ${forecast.hi}° / ${forecast.lo ?? "—"}°` : ""}</small></div><i /></button>;
             })}</nav>
           </div>
 
-          <div className="rd-detail-body sl-detail-body">
-            <section className="rd-route-column"><header><div><small>DAY {String(dayIdx + 1).padStart(2, "0")} · {day.items.length} 个安排</small><h3>{day.theme || `Day ${dayIdx + 1} 的旅行安排`}</h3></div>{!editing && <div className="sl-menu-wrap"><button className="sl-day-more" aria-label="当天路线操作" aria-expanded={menu === "day"} disabled={optimizing} onClick={() => setMenu(menu === "day" ? null : "day")}><UiIcon name="menu" size={16} /></button>{menu === "day" && <div className="sl-menu"><button onClick={() => optimize()}>优化当天路线</button>{originalDays[dayIdx] && <button onClick={() => optimize(true)}>撤回路线优化</button>}<button onClick={() => { beginEdit(); openDrawer({ type: "search", target: { dayIdx, index: null, type: "attraction" } }); }}>添加地点</button></div>}</div>}</header>
+          <nav className="mobile-detail-tabs" aria-label="行程视图">{[{id:"route",label:"路线"},{id:"map",label:"地图"}].map(item => <button key={item.id} aria-pressed={mobileDetail === item.id} onClick={() => setMobileDetail(item.id)}>{item.label}</button>)}</nav>
+          <div className={`rd-detail-body sl-detail-body${drawer ? " has-drawer" : ""}`}>
+            <section className="rd-route-column"><header><div><small>第 {dayIdx + 1} 天 · {day.items.length} 个安排</small><h3>{day.theme || `Day ${dayIdx + 1} 的旅行安排`}</h3></div>{!editing && <div className="sl-menu-wrap"><button className="sl-day-more" aria-label="当天路线操作" aria-expanded={menu === "day"} disabled={optimizing} onClick={() => setMenu(menu === "day" ? null : "day")}><UiIcon name="menu" size={16} /></button>{menu === "day" && <div className="sl-menu"><button onClick={() => optimize()}>优化当天路线</button>{originalDays[dayIdx] && <button onClick={() => optimize(true)}>撤回路线优化</button>}<button onClick={() => { beginEdit(); openDrawer({ type: "search", target: { dayIdx, index: null, type: "attraction" } }); }}>添加地点</button></div>}</div>}</header>
               {optimizing && <p role="status" className="sl-edit-hint">正在更新当天路线…</p>}
               {actionError && <p role="alert" className="sl-error">{actionError}<button onClick={() => optimize(retryRevert)}>重试</button></p>}
               {editing ? <StudioPlanEditor key={planId} ref={editorRef} plan={plan} planId={planId} dayIdx={dayIdx} currentUsername={currentUsername} toolbarHost={toolbarHost} onSearch={target => openDrawer({ type: "search", target })} onPreview={setDraftPlan} onClose={finishEdit} onSaved={raw => { setPlan(adaptPlan(raw, currentUsername)); onPlanChange?.(raw, planId); }} /> : <RedesignTimeline items={day.items} selectedIndex={selectedIndex} onSelect={index => { setSelectedIndex(index); openDrawer({ type: "place" }); }} activeNavKey={activeNavKey} tipStatus={plan.tip_status} onNav={(key, pair) => { setActiveNavKey(key); setActiveNavPair(key ? pair : null); }} />}
@@ -341,10 +342,11 @@ function TripDetailPage({ plan: planProp, planId: planIdProp, onRequestModify, c
               <MapPanel day={day} dayIdx={dayIdx} workbenchControls selectedLocation={selected?.location} navPair={activeNavPair} onNavClear={() => { setActiveNavKey(null); setActiveNavPair(null); }} />
               {selected && !drawer && <button className="sl-map-summary" onClick={() => openDrawer({ type: "place" })}><UiIcon name="location" size={15} /><strong>{selected.name}</strong><span>{itemDuration(selected)}</span><UiIcon name="chevron-up" size={15} /></button>}
               <aside hidden={!drawer} ref={drawerRef} tabIndex="-1" className="sl-drawer" role="region" aria-label={drawerTitle}>
-                <header><div><small>{drawer?.type === "notes" ? "TRAVEL NOTES" : "PLACE DETAILS"}</small><h3>{drawerTitle}</h3></div><button aria-label="关闭详情抽屉" onClick={closeDrawer}><UiIcon name="close" size={18} /></button></header>
+                <header><div><h3>{drawerTitle}</h3></div><button aria-label="关闭详情抽屉" onClick={closeDrawer}><UiIcon name="close" size={18} /></button></header>
                 <div className="sl-drawer-body">
                   <div hidden={drawer?.type !== "notes"}><StudioPlanNotes key={planId} plan={plan} planId={planId} onNotice={showNotice} /></div>
                   {drawer?.type === "place" && selected && <div className="sl-place-details">
+                    <StudioPlacePhoto key={`${selected.name}:${selected.photo || ""}`} name={selected.name} photo={selected.photo} />
                     <p className="sl-place-duration">{itemDuration(selected)}{selected.rating != null ? ` · ${selected.rating} 分` : ""}</p>
                     <dl><dt>开放时间</dt><dd>{selected.open || "暂无开放时间，请以景区公告为准"}</dd><dt>地址</dt><dd>{selected.address || selected.addr || "暂无地址"}</dd>{selected.cost && <><dt>参考费用</dt><dd>{formatPoiCost(selected.cost)}</dd></>}{selected.tel && <><dt>联系电话</dt><dd>{selected.tel}</dd></>}</dl>
                     <section className="sl-tips"><h4>游玩贴士</h4><p>{selected.note || selected.reason || "暂无详细贴士"}</p>{["queued", "running"].includes(plan.tip_status) && <p role="status">正在整理最新贴士…</p>}{(tipError || ["failed", "unavailable"].includes(plan.tip_status)) && <p className="sl-error" role="alert">{tipError || "贴士尚未更新，可重新生成"}</p>}<button disabled={editing || tipBusy || ["queued", "running"].includes(plan.tip_status)} onClick={retryTips}>{tipBusy ? "提交中…" : tipError || plan.tip_status === "failed" ? "重试生成贴士" : "重新生成景点贴士"}</button></section>

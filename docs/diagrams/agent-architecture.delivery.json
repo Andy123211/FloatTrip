@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "ok": true,
+  "command": "deliver",
+  "type": "architecture",
+  "input": "/Users/chj/Desktop/new tripagent/docs/diagrams/agent-architecture.json",
+  "output": "/Users/chj/Desktop/new tripagent/docs/diagrams/agent-architecture.html",
+  "specification": {
+    "sha256": "8286c1dafe5a8b3d7b349f29e67ffa837051c28a8956409c90b6ff36bb7141c9",
+    "bytes": 5396
+  },
+  "artifact": {
+    "sha256": "6d684183c5f4a4cf0cdd12c7b887de5747a70bc129c4d105aff369762f7bc7e9",
+    "bytes": 812716
+  },
+  "validation": {
+    "checksPassed": 9,
+    "checkCount": 9,
+    "compositionProfile": "showcase",
+    "compositionStatus": "pass",
+    "errors": 0,
+    "warnings": 0
+  }
+}

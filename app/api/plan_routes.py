@@ -621,7 +621,8 @@ def route_walking(
     if not decode_token(authorization[7:]):
         raise HTTPException(status_code=401, detail="token 无效或已过期")
 
-    import httpx
+    from app.core.http import http_get_json
+    from urllib.parse import urlencode
     key = amap_key()
     if not key:
         raise HTTPException(status_code=503, detail="未配置 AMAP_API_KEY")
@@ -634,9 +635,7 @@ def route_walking(
         "output": "json",
     }
     try:
-        resp = httpx.get(url, params=params, timeout=8)
-        resp.raise_for_status()
-        data = resp.json()
+        data = http_get_json(url + '?' + urlencode(params), timeout=8)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"高德请求失败: {e}")
 

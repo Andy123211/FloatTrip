@@ -1,7 +1,9 @@
 // components.jsx — 统一图标 / 卡片 / 地图 / 旅程加载动画
 
-/* ── 小鸭品牌线性图标 ────────────────────────────── */
+/* ── 途见品牌线性图标 ────────────────────────────── */
 const UI_ICON_PATHS = {
+  chat: <path d="M4 4h16v12H9l-5 4V4Z"/>,
+  "arrow-up-right": <path d="M6 18 18 6M6 6h12v12"/>,
   plane: <><path d="M3 11.5 21 5l-2 4-6 3 4 2-2 2-5-2-3 4-2-1 1-5-3-1z"/><path d="m10 9-3-5 2-1 5 4"/></>,
   train: <><rect x="5" y="3" width="14" height="16" rx="3"/><path d="M8 7h8M8 12h.01M16 12h.01M8 19l-2 2m10-2 2 2"/></>,
   car: <><path d="m5 16-1-3 2-5h12l2 5-1 3z"/><path d="M7 8l1-3h8l1 3M7 16v2m10-2v2M7 13h.01M17 13h.01"/></>,
@@ -319,7 +321,7 @@ function AttractionCard({ item, onNearby, tipStatus }) {
           {item.address && <div className="t-address"><UiIcon name="location" size={13} /> {item.address}</div>}
           {item.tel && <div className="t-address"><UiIcon name="phone" size={13} /> {item.tel}</div>}
           {item.note ? <div className="tip-box"><UiIcon name="sparkle" size={14} />{item.note}</div> :
-            (tipStatus === "queued" || tipStatus === "running") ? <div className="tip-box"><UiIcon name="sparkle" size={14} />途途正在整理贴士…</div> :
+            (tipStatus === "queued" || tipStatus === "running") ? <div className="tip-box"><UiIcon name="sparkle" size={14} />途见正在整理贴士…</div> :
             tipStatus === "unavailable" ? <div className="tip-box"><UiIcon name="sparkle" size={14} />路线已更新，贴士尚未更新</div> :
             <div className="tip-box"><UiIcon name="sparkle" size={14} />暂未生成贴士</div>}
           {onNearby && item.location && (
