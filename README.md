@@ -19,12 +19,12 @@
 </div>
 
 <p align="center">
-  <img src="static/images/readme/web-workspace.png" alt="新版途见工作区：左侧持续对话，中间逐日行程，右侧地图区域" width="1200" />
+  <img src="static/images/readme/web-workspace.png" alt="上海一日四景点：静安寺、上海城隍庙、豫园、外滩，含天气与高德真实驾车路线" width="1200" />
 </p>
 
-<p align="center"><sub>新版 Web 工作区 · 对话、行程与地点视图同屏协作</sub></p>
+<p align="center"><sub>上海一日 4 个景点 · 天气、逐日安排与高德真实道路路线</sub></p>
 
-> 本页截图来自当前 Web 的实际渲染界面，使用隔离示例数据，不代表在线规划质量或实地核验结果。截图未配置地图 Key，示例未提供地点坐标，地图区域保留真实降级提示。
+> 上海路线图选取已保存行程中的静安寺 → 上海城隍庙 → 豫园 → 外滩，展示高德真实底图与驾车道路数据。天气为该行程保存的 **2026-06-09 历史预报：阴，20–26°C**，并非当前天气。截图使用脱敏展示数据；地图通过截图专用代理接入高德 Web 服务，详见 [截图来源](static/images/readme/web-capture-notes.md)。
 
 <a id="features"></a>
 
