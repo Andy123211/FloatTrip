@@ -19,7 +19,7 @@
 </div>
 
 <p align="center">
-  <img src="static/images/readme/web-workspace.png" alt="上海一日四景点：静安寺、上海城隍庙、豫园、外滩，含天气与高德真实驾车路线" width="1200" />
+  <img src="static/images/readme/shanghai-four-stops-workspace-20260926.png" alt="上海一日四景点：静安寺、上海城隍庙、豫园、外滩，含天气与高德真实驾车路线" width="1200" />
 </p>
 
 <p align="center"><sub>上海一日 4 个景点 · 天气、逐日安排与高德真实道路路线</sub></p>
@@ -52,7 +52,7 @@ Web 采用浅蓝玻璃界面。桌面端并排查看对话、路线与地图；�
 输入目的地、日期和偏好，从首页进入持续对话的旅行工作区。
 
 <p align="center">
-  <img src="static/images/readme/web-home.png" alt="途见新版首页：旅行需求输入框与已保存行程入口" width="1100" />
+  <img src="static/images/readme/shanghai-four-stops-home-20260926.png" alt="途见新版首页：旅行需求输入框与已保存行程入口" width="1100" />
 </p>
 
 ### 把行程改成自己的节奏
@@ -60,7 +60,7 @@ Web 采用浅蓝玻璃界面。桌面端并排查看对话、路线与地图；�
 在逐日路线中直接编辑时间与地点，修改后统一保存；草稿支持撤销、重做和跨日切换。
 
 <p align="center">
-  <img src="static/images/readme/web-editor.png" alt="途见行程编辑界面：时间输入、地点调整和撤销重做操作" width="1100" />
+  <img src="static/images/readme/shanghai-four-stops-editor-20260926.png" alt="途见行程编辑界面：时间输入、地点调整和撤销重做操作" width="1100" />
 </p>
 
 ### 旅行记忆由你管理
@@ -68,7 +68,7 @@ Web 采用浅蓝玻璃界面。桌面端并排查看对话、路线与地图；�
 偏好以可见条目呈现，可编辑、忘记或补充，无需每次重新解释。
 
 <p align="center">
-  <img src="static/images/readme/web-profile.png" alt="途见旅行画像：管理旅行节奏、景点和饮食偏好" width="1100" />
+  <img src="static/images/readme/shanghai-four-stops-profile-20260926.png" alt="途见旅行画像：管理旅行节奏、景点和饮食偏好" width="1100" />
 </p>
 
 <a id="quick-start"></a>

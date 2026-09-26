@@ -17,6 +17,6 @@
 
 工作区、编辑和画像图使用同一上海场景，桌面视口 1600 × 1000，并通过现有分隔条加宽行程与地图区域。首页使用同一视口的完整页面截图。仅隐藏浏览器翻译扩展悬浮按钮，产品控件和文字保持实际渲染。
 
-文件：`web-workspace.png`、`web-home.png`、`web-editor.png`、`web-profile.png`。
+文件：`shanghai-four-stops-workspace-20260926.png`、`shanghai-four-stops-home-20260926.png`、`shanghai-four-stops-editor-20260926.png`、`shanghai-four-stops-profile-20260926.png`。
 
 后续更新应保留地图数据来源、路线查询结果和天气日期。不要将历史预报描述为当前天气，或将截图专用接入方式描述为默认产品链路。
