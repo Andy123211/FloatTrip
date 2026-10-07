@@ -28,6 +28,7 @@ const run = ref<RunPublic | null>(null);
 const progress = ref("填写旅行条件后开始规划");
 const itinerary = ref<ItineraryEnvelope | null>(null);
 const error = ref("");
+const copyStatus = ref("");
 const apiHealthy = ref<boolean | null>(null);
 const sequence = ref(0);
 let pollTimer: ReturnType<typeof setTimeout> | undefined;
@@ -170,6 +171,49 @@ async function poll(runId: string) {
   } catch (cause) {
     error.value = messageOf(cause);
     busy.value = false;
+  }
+}
+
+function itineraryText(result: ItineraryEnvelope): string {
+  const plan = result.plan;
+  const heading = `${plan.destination || form.destination} · ${plan.days_count || plan.days.length} 日游`;
+  const dateRange = [plan.start_date, plan.end_date].filter(Boolean).join(" — ");
+  const days = plan.days.map((day) => {
+    const title = `第 ${day.day} 天${day.date ? `（${day.date}）` : ""}${day.theme ? ` · ${day.theme}` : ""}`;
+    const stops = (day.timeline || []).map((item) => {
+      const time = [item.start_time, item.end_time].filter(Boolean).join(" — ");
+      const detail = item.address || item.tip || "";
+      const distance = item.dist_from_prev_km == null ? "" : ` · ${item.dist_from_prev_km} km`;
+      return `- ${time ? `${time} ` : ""}${item.name || "行程安排"}${detail ? `：${detail}` : ""}${distance}`;
+    });
+    return [title, ...(stops.length ? stops : ["- 暂无行程点"])].join("\n");
+  });
+  return [heading, dateRange, ...days, plan.weather_note ? `出行提示：${plan.weather_note}` : ""]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+async function copyItinerary() {
+  if (!itinerary.value) return;
+  const text = itineraryText(itinerary.value);
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.setAttribute("readonly", "");
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.select();
+      const copied = document.execCommand("copy");
+      textarea.remove();
+      if (!copied) throw new Error("浏览器未允许复制，请检查剪贴板权限。");
+    }
+    copyStatus.value = "行程已复制，可以粘贴分享。";
+  } catch {
+    copyStatus.value = "复制失败，请检查浏览器剪贴板权限后重试。";
   }
 }
 
@@ -411,6 +455,12 @@ function focusLabel(focus: TripFocus) {
                 <span>· {{ focusLabel(form.focus) }}</span>
               </p>
             </div>
+          </div>
+          <div class="result-actions">
+            <button class="copy-button" type="button" @click="copyItinerary">
+              复制行程
+            </button>
+            <span role="status" aria-live="polite">{{ copyStatus }}</span>
           </div>
           <div v-if="itinerary.plan.solver_diagnostics" class="solver-strip">
             <span

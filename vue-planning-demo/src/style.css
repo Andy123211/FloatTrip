@@ -486,6 +486,29 @@ input::placeholder {
 .trip-summary p span {
   color: #71887e;
 }
+.result-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 34px;
+  margin: 7px 2px 2px;
+}
+.copy-button {
+  padding: 6px 10px;
+  border: 1px solid #dce7e2;
+  border-radius: 6px;
+  background: #f8fbf9;
+  color: #54796b;
+  font-size: 10px;
+}
+.copy-button:hover {
+  border-color: #bfd5ca;
+  background: #eef5f1;
+}
+.result-actions span {
+  color: #75877e;
+  font-size: 9px;
+}
 .solver-strip {
   display: flex;
   align-items: center;

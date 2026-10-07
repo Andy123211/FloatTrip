@@ -1,12 +1,16 @@
 # Vue 规划演示客户端
 
-这是 FloatTrip 后端的独立 Vue 3 + TypeScript 演示页面，用于展示规划 API 的真实调用链。它调用项目现有的 FastAPI/Pydantic 登录、Run、Runtime 事件和历史行程接口；规划、LangGraph、POI 查询及 CP-SAT 求解仍由上游后端执行。没有新增 MCP 接入，也不包含模型或高德凭据。
+这是 FloatTrip 后端的独立 Vue 3 + TypeScript 演示页面，用于展示规划 API 的真实调用链。它调用项目现有的 FastAPI/Pydantic 登录、Run、Runtime 事件和历史行程接口，并提供逐日行程复制；规划、LangGraph、POI 查询及 CP-SAT 求解仍由上游后端执行。没有新增 MCP 接入，也不包含模型或高德凭据。
 
 ## 启动
 
-先按仓库根目录 README 安装依赖并启动 FastAPI：
+建议 Python 3.12。使用 Conda 创建项目专属环境并安装根目录后端依赖；首次启动前先按根目录 README 配置 `.env.local`：
 
 ```bash
+conda create -n floattrip python=3.12 -y
+conda activate floattrip
+python -m pip install -r requirements.txt
+cp .env.example .env.local
 python run.py
 ```
 
@@ -18,7 +22,7 @@ npm install
 npm run dev
 ```
 
-浏览器打开 Vite 显示的本地地址（默认 `http://localhost:5173`）。开发服务器将 `/api` 请求代理到 `http://127.0.0.1:8765`。首次可注册演示账号，也可使用当前服务上的已有账号。规划依赖服务器已配置的模型与高德 Web 服务凭据。
+浏览器打开 Vite 显示的本地地址（默认 `http://localhost:5173`）。开发服务器将 `/api` 请求代理到 `http://127.0.0.1:8765`。首次可注册演示账号，也可使用当前服务上的已有账号。后端在启动时会构建模型客户端，因此需先在 `.env.local` 配置 `DEEPSEEK_API_KEY`（或受支持的模型提供商配置），否则 FastAPI 会在启动阶段退出，健康检查和登录接口也不可用。完整规划还需要可用的模型服务与高德 Web 服务 `AMAP_API_KEY`。
 
 ## 请求流程
 
