@@ -7,8 +7,8 @@
 建议 Python 3.12。使用 Conda 创建项目专属环境并安装根目录后端依赖；首次启动前先按根目录 README 配置 `.env.local`：
 
 ```bash
-conda create -n floattrip python=3.12 -y
-conda activate floattrip
+conda create -n floattrip_resume_312 python=3.12 -y
+conda activate floattrip_resume_312
 python -m pip install -r requirements.txt
 cp .env.example .env.local
 python run.py
