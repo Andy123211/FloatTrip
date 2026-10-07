@@ -30,6 +30,8 @@ mobile-app/android/app/build/
 mobile-prototype/node_modules/
 mobile-prototype/test-results/
 mobile-prototype/playwright-report/
+vue-planning-demo/node_modules/
+vue-planning-demo/dist/
 data/langgraph-checkpoints.db
 data/langgraph-checkpoints.db-shm
 data/langgraph-checkpoints.db-wal
