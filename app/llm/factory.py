@@ -1,4 +1,4 @@
-"""统一 LLM 工厂：支持多个提供商（DeepSeek、豆包等）。"""
+"""统一 LLM 工厂：支持 DeepSeek、豆包和 OpenAI 兼容 API。"""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from app.core.env import load_local_env
 
 
 SchemaT = TypeVar("SchemaT", bound=BaseModel)
-LLMProvider = Literal["deepseek", "doubao"]
+LLMProvider = Literal["deepseek", "doubao", "openai_compatible"]
 
 DEFAULT_PROVIDER = "deepseek"
 
@@ -20,8 +20,10 @@ def resolve_llm_provider() -> LLMProvider:
     """从环境变量解析 LLM 提供商，默认为 DeepSeek。"""
     load_local_env()
     provider = os.getenv("LLM_PROVIDER", DEFAULT_PROVIDER).strip().lower()
-    if provider not in ("deepseek", "doubao"):
-        raise ValueError(f"未知的 LLM 提供商：{provider}，支持：deepseek, doubao")
+    if provider not in ("deepseek", "doubao", "openai_compatible"):
+        raise ValueError(
+            f"未知的 LLM 提供商：{provider}，支持：deepseek, doubao, openai_compatible"
+        )
     return provider  # type: ignore
 
 
@@ -48,6 +50,9 @@ def build_chat_llm(
             raise ValueError("thinking mode is only supported by the DeepSeek provider")
         from app.llm.doubao import build_chat_doubao
         return build_chat_doubao(model=model, temperature=temperature)
+    elif provider == "openai_compatible":
+        from app.llm.openai_compatible import build_chat_openai_compatible
+        return build_chat_openai_compatible(model=model, temperature=temperature)
 
 
 def build_structured_llm(
@@ -75,3 +80,8 @@ def build_structured_llm(
             raise ValueError("thinking mode is only supported by the DeepSeek provider")
         from app.llm.doubao import build_structured_doubao
         return build_structured_doubao(schema, model=model, temperature=temperature)
+    elif provider == "openai_compatible":
+        from app.llm.openai_compatible import build_structured_openai_compatible
+        return build_structured_openai_compatible(
+            schema, model=model, temperature=temperature
+        )

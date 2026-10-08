@@ -27,16 +27,31 @@ DEEPSEEK_API_KEY=sk_xxxxxxxxxxxx
 - `deepseek-v4-flash`（默认，快速）
 - `deepseek-v4-pro`（更强大）
 
-主 Agent 和规划 Agent 固定使用 DeepSeek thinking 模式。其他辅助任务仍按
-`LLM_PROVIDER` 和各自模型变量运行，不会无条件开启 thinking。thinking 模式不发送
-`temperature`，默认推理强度为 `high`，可分别调整为 `max`。
+当 `LLM_PROVIDER=deepseek` 时，主 Agent 和规划 Agent 使用 DeepSeek thinking 模式。改用豆包或
+OpenAI 兼容服务时，thinking 专属字段不会发送；其他调用仍按 `LLM_PROVIDER` 和各自模型变量运行。
+DeepSeek thinking 模式不发送 `temperature`，默认推理强度为 `high`，可分别调整为 `max`。
 
 **API 获取：**
 https://platform.deepseek.com
 
 ---
 
-### 2. 豆包（Doubao）
+### 2. OpenAI Chat Completions 兼容服务
+
+可连接兼容 OpenAI Chat Completions 的第三方服务或自建网关。在 `.env.local` 中填写：
+
+```dotenv
+LLM_PROVIDER=openai_compatible
+OPENAI_COMPATIBLE_BASE_URL=https://your-provider.example/v1
+OPENAI_COMPATIBLE_API_KEY=your_api_key
+OPENAI_COMPATIBLE_MODEL=provider/model-name
+```
+
+主 Agent、规划结构化输出、候选评分和记忆功能都会读取 `LLM_PROVIDER` 并走该服务。模型须支持 Chat Completions 与工具/函数调用；此模式不发送 DeepSeek 专属 thinking 字段。对话与行程提示会发送至配置的服务，并可能产生费用。API Key 只放在本地 `.env.local`，不要提交到 Git。
+
+---
+
+### 3. 豆包（Doubao）
 
 字节跳动出品的大模型，通过 Volces Ark 平台提供。
 
@@ -116,7 +131,7 @@ docker run -e LLM_PROVIDER=doubao -e DOUBAO_API_KEY=xxx my_app
 ### 1. 提供商不支持
 
 ```
-ValueError: 未知的 LLM 提供商：xxx，支持：deepseek, doubao
+ValueError: 未知的 LLM 提供商：xxx，支持：deepseek, doubao, openai_compatible
 ```
 
 **解决：** 检查 `LLM_PROVIDER` 环境变量，确保值为 `deepseek` 或 `doubao`。

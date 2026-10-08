@@ -38,7 +38,6 @@ def test_spot_tips_use_a_single_non_thinking_structured_model(monkeypatch):
 
     build.assert_called_once_with(
         nodes.SpotTipsResult,
-        provider="deepseek",
         model=None,
         temperature=0,
         thinking=False,

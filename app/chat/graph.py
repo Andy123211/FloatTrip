@@ -37,7 +37,6 @@ async def dialogue_agent_node(
     """Call the structured LLM once, with one safe schema-repair attempt."""
     client = llm or build_structured_llm(
         DialogueDecision,
-        provider="deepseek",
         model=os.getenv("MAIN_AGENT_MODEL") or None,
         temperature=0,
         thinking=True,
@@ -77,12 +76,12 @@ async def dialogue_agent_node(
         ) from last_error
     if error_name in {"AuthenticationError", "PermissionDeniedError"}:
         raise DialogueUnderstandingError(
-            "AI 服务认证失败，请检查 DeepSeek API Key 配置。",
+            "AI 服务认证失败，请检查当前模型提供商的 API Key 配置。",
             code="llm_authentication_failed",
         ) from last_error
     if error_name in {"BadRequestError", "NotFoundError", "UnprocessableEntityError"}:
         raise DialogueUnderstandingError(
-            "AI 服务请求被拒绝，请检查 DeepSeek 模型和服务地址配置。",
+            "AI 服务请求被拒绝，请检查当前模型名、服务地址及其协议兼容性。",
             code="llm_request_rejected",
         ) from last_error
     raise DialogueUnderstandingError() from last_error

@@ -84,10 +84,9 @@ from langgraph.graph import END
 
 
 def _build_planning_llm(schema, model_name: str | None, *, temperature: float = 0):
-    """All planning-agent LLM calls use DeepSeek thinking mode explicitly."""
+    """Build structured planning output using the configured provider."""
     return build_structured_llm(
         schema,
-        provider="deepseek",
         model=model_name or os.getenv("PLANNING_AGENT_MODEL") or None,
         temperature=temperature,
         thinking=True,
@@ -99,7 +98,6 @@ def _build_spot_tips_llm(model_name: str | None):
     """Tips are lightweight enrichment, so use one direct structured call."""
     return build_structured_llm(
         SpotTipsResult,
-        provider="deepseek",
         model=(
             model_name
             or os.getenv("PLANNING_SPOT_TIPS_MODEL")
@@ -289,7 +287,6 @@ def make_candidate_builder_node(model_name: str | None):
     # request so it cannot incur the Think → formatter double round-trip.
     llm = build_structured_llm(
         CandidatePoolProposal,
-        provider="deepseek",
         model=(
             os.getenv("PLANNING_CANDIDATE_MODEL")
             or model_name

@@ -62,7 +62,7 @@ def current_revision_base(base: dict[str, Any], notes: str):
 
 def make_revision_prepare_node(model_name=None):
     async def prepare(state: TravelPlanState):
-        llm = build_structured_llm(RevisionSearchIntent, provider="deepseek", model=model_name or os.getenv("PLANNING_AGENT_MODEL"),
+        llm = build_structured_llm(RevisionSearchIntent, model=model_name or os.getenv("PLANNING_AGENT_MODEL"),
                                    temperature=0, thinking=True)
         result = await ainvoke_structured(llm, [("system",
             "分析行程修改是否需搜索新景点。替换/新增/热门地标/换景点类型需要搜索；仅改时间或顺序不需要。"

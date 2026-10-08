@@ -17,7 +17,6 @@ def build_main_agent_graph(
     if llm is None:
         from app.llm.factory import build_chat_llm
         llm = build_chat_llm(
-            provider="deepseek",
             model=os.getenv("MAIN_AGENT_MODEL") or None,
             temperature=0,
             thinking=True,

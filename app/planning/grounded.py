@@ -133,7 +133,7 @@ def deterministic_limits(req,query):
 async def structured(schema,system,payload):
     from app.planning import nodes
     from app.planning.helpers import ainvoke_structured
-    llm=nodes.build_structured_llm(schema,provider='deepseek',model=os.getenv('PLANNING_CANDIDATE_MODEL') or os.getenv('PLANNING_AGENT_MODEL'),temperature=0)
+    llm=nodes.build_structured_llm(schema,model=os.getenv('PLANNING_CANDIDATE_MODEL') or os.getenv('PLANNING_AGENT_MODEL'),temperature=0)
     messages=[('system',system),('human',json.dumps(payload,ensure_ascii=False,default=str))]
     for attempt in range(2):
         try:

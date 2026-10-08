@@ -117,7 +117,7 @@ REDIS_URL=
 
 切换豆包时，配置 `LLM_PROVIDER=doubao`、`DOUBAO_API_KEY` 与服务可用的 `DOUBAO_MODEL`。`DOUBAO_API_KEY` 是 API 密钥，不是模型 endpoint ID。
 
-完整配置项见 [环境变量模板](.env.example)；提供商配置见 [LLM_PROVIDERS.md](LLM_PROVIDERS.md)，具体默认值以模板和当前实现为准。
+也可用兼容 OpenAI Chat Completions 的 API：设置 `LLM_PROVIDER=openai_compatible`、`OPENAI_COMPATIBLE_BASE_URL`、`OPENAI_COMPATIBLE_MODEL` 和本地 `OPENAI_COMPATIBLE_API_KEY`。例如可把 Base URL 配为 `https://lin312354.top/cliproxy/v1`，模型名填写服务控制台显示的 ID。Key 只放在 `.env.local`，不要提交。该服务会收到对话和行程提示，并可能产生费用。完整配置见 [环境变量模板](.env.example) 与[提供商配置](LLM_PROVIDERS.md)。
 
 ### 3. 启动
 
@@ -181,7 +181,7 @@ Runtime 管理排队、并发、状态、事件、取消与重试，客户端通
 | API 与存储 | FastAPI、SQLite、可选 Redis |
 | Agent 与任务 | LangChain、LangGraph、持久化 Runtime、SSE |
 | 排程与数据 | OR-Tools CP-SAT、高德 POI 与天气 |
-| 模型接入 | DeepSeek / 豆包，支持环境变量配置 |
+| 模型接入 | DeepSeek / 豆包 / OpenAI Chat Completions 兼容服务，支持环境变量配置 |
 | Web | React 18、JSX、浏览器 Babel、FastAPI 静态资源 |
 | 移动端 | Bare React Native + TypeScript，复用后端 API |
 

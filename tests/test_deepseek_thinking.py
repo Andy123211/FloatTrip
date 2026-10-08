@@ -181,7 +181,7 @@ def test_deepseek_strict_schema_requires_every_nested_property():
     assert_required(tool["function"]["parameters"])
 
 
-def test_main_and_planning_factories_force_deepseek_thinking(monkeypatch):
+def test_main_and_planning_factories_keep_reasoning_options_configurable(monkeypatch):
     import app.llm.factory as factory
     import app.planning.nodes as planning_nodes
 
@@ -192,6 +192,7 @@ def test_main_and_planning_factories_force_deepseek_thinking(monkeypatch):
         return object()
 
     monkeypatch.setattr(factory, "build_chat_llm", fake_chat)
+    monkeypatch.setenv("LLM_PROVIDER", "deepseek")
     # react_graph imports the factory function lazily, so this captures the
     # production defaults without constructing a real network client.
     import app.chat.react_graph as react_graph
@@ -211,7 +212,6 @@ def test_main_and_planning_factories_force_deepseek_thinking(monkeypatch):
         react_graph.build_main_agent_graph([])
     except RuntimeError as exc:
         assert str(exc) == "captured"
-    assert main_call["provider"] == "deepseek"
     assert main_call["thinking"] is True
     assert main_call["reasoning_effort"] == "high"
 
@@ -224,6 +224,5 @@ def test_main_and_planning_factories_force_deepseek_thinking(monkeypatch):
     monkeypatch.setattr(planning_nodes, "build_structured_llm", fake_structured)
     monkeypatch.setenv("PLANNING_AGENT_MODEL", "deepseek-v4-pro")
     planning_nodes._build_planning_llm(dict, None)
-    assert planning_call["provider"] == "deepseek"
     assert planning_call["thinking"] is True
     assert planning_call["reasoning_effort"] == "high"
