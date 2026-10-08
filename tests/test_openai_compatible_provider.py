@@ -37,10 +37,30 @@ def test_openai_compatible_chat_uses_local_configuration(monkeypatch):
         "model": "provider/model",
         "api_key": "local-test-key",
         "base_url": "https://example.invalid/v1",
-        "temperature": 0.25,
         "timeout": 60.0,
         "max_retries": 1,
     }
+
+
+def test_openai_compatible_temperature_is_opt_in(monkeypatch):
+    import langchain_openai
+    from app.llm.openai_compatible import build_chat_openai_compatible
+
+    captured = {}
+
+    class FakeChatOpenAI:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr(langchain_openai, "ChatOpenAI", FakeChatOpenAI)
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "local-test-key")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_BASE_URL", "https://example.invalid/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_MODEL", "provider/model")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_SEND_TEMPERATURE", "true")
+
+    build_chat_openai_compatible(temperature=0.25)
+
+    assert captured["temperature"] == 0.25
 
 
 def test_openai_compatible_structured_output_uses_function_calling(monkeypatch):

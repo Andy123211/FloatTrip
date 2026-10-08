@@ -49,6 +49,8 @@ OPENAI_COMPATIBLE_MODEL=provider/model-name
 
 主 Agent、规划结构化输出、候选评分和记忆功能都会读取 `LLM_PROVIDER` 并走该服务。模型须支持 Chat Completions 与工具/函数调用；此模式不发送 DeepSeek 专属 thinking 字段。对话与行程提示会发送至配置的服务，并可能产生费用。API Key 只放在本地 `.env.local`，不要提交到 Git。
 
+兼容提供商默认不发送可选的 `temperature` 参数，以适配会拒绝此字段的网关；如果确认你的服务支持该参数，可在本地 `.env.local` 设置 `OPENAI_COMPATIBLE_SEND_TEMPERATURE=true` 后重启服务。
+
 ---
 
 ### 3. 豆包（Doubao）

@@ -37,13 +37,21 @@ def _build_client(*, model: str | None, temperature: float) -> Any:
     except ModuleNotFoundError as exc:
         raise RuntimeError("缺少 langchain-openai，请先安装项目依赖。") from exc
 
+    client_options: dict[str, Any] = {
+        "model": model_name,
+        "api_key": api_key,
+        "base_url": base_url,
+        "timeout": float(os.getenv("OPENAI_COMPATIBLE_TIMEOUT_SECONDS", "60")),
+        "max_retries": 1,
+    }
+    send_temperature = os.getenv(
+        "OPENAI_COMPATIBLE_SEND_TEMPERATURE", "false"
+    ).strip().lower() in {"1", "true", "yes"}
+    if send_temperature:
+        client_options["temperature"] = temperature
+
     return ChatOpenAI(
-        model=model_name,
-        api_key=api_key,
-        base_url=base_url,
-        temperature=temperature,
-        timeout=float(os.getenv("OPENAI_COMPATIBLE_TIMEOUT_SECONDS", "60")),
-        max_retries=1,
+        **client_options,
     )
 
 
